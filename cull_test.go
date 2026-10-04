@@ -1,0 +1,49 @@
+package main
+
+import (
+	"math"
+	"testing"
+)
+
+// Visible cells must be a subset of the old radius box, and far fewer on average.
+func TestVisibleCellsCullsRadiusBox(t *testing.T) {
+	var old, new int
+	for y := range level {
+		for x := range level[y] {
+			if wall(x, y) {
+				continue
+			}
+			for dir := 0; dir < 4; dir++ {
+				ang := float64(dir) * math.Pi / 2
+				c := cam{x: float64(x) + 0.5, z: float64(y) + 0.5, ang: ang}
+				c.fwx, c.fwz = math.Sin(ang), -math.Cos(ang)
+				c.rtx, c.rtz = math.Cos(ang), math.Sin(ang)
+				for cell := range visibleCells(c) {
+					if cell[0] < x-2*radius || cell[0] > x+2*radius || cell[1] < y-2*radius || cell[1] > y+2*radius || wall(cell[0], cell[1]) {
+						t.Fatalf("bad visible cell %v from %d,%d", cell, x, y)
+					}
+					new++
+				}
+				for cy := y - radius; cy <= y+radius; cy++ {
+					for cx := x - radius; cx <= x+radius; cx++ {
+						if !wall(cx, cy) {
+							old++
+						}
+					}
+				}
+			}
+		}
+	}
+	t.Logf("open cells drawn, summed over every position+facing: radius box %d, raycast %d (%.0f%%)", old, new, 100*float64(new)/float64(old))
+	if new*2 > old {
+		t.Fatalf("culling barely helps: %d vs %d", new, old)
+	}
+}
+
+func BenchmarkVisibleCells(b *testing.B) {
+	c := cam{x: 1.5, z: 1.5, fwx: 0, fwz: -1, rtx: 1, rtz: 0}
+	for i := 0; i < b.N; i++ {
+		visCache.cells = nil
+		visibleCells(c)
+	}
+}
