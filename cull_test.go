@@ -1,12 +1,30 @@
-package main
+package blobber
 
 import (
 	"math"
 	"testing"
 )
 
+var testLevel = []string{
+	"#############################",
+	"#..............##############",
+	"#.##.###.#####.#............#",
+	"#.#....#.#...#.#............#",
+	"#.#.##.#.#...#.#............#",
+	"#...#....#...#.#............#",
+	"###.#.####.#.#.#............#",
+	"#...#....#.#................#",
+	"#.#...##.#.#.#.#............#",
+	"#.####.#.....#.#............#",
+	"#......#.###.#.#............#",
+	"#.####.#.#...#.#............#",
+	"#......#...#...##############",
+	"#############################",
+}
+
 // Visible cells must be a subset of the old radius box, and far fewer on average.
 func TestVisibleCellsCullsRadiusBox(t *testing.T) {
+	level = testLevel
 	var old, new int
 	for y := range level {
 		for x := range level[y] {

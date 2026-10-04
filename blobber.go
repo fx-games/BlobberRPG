@@ -1,12 +1,11 @@
 // Blobber: a first-person grid crawler ("gridder") in pure 2D, Deepnight style.
 // No 3D pipeline: every surface is a flat quad, transformed by hand, painted far-to-near.
 // Textures and their fake-3D bump details are generated at startup from a heightmap.
-package main
+package blobber
 
 import (
 	"fmt"
 	"image/color"
-	"log"
 	"math"
 	"math/rand"
 	"sort"
@@ -29,22 +28,7 @@ const (
 	tex     = 128 // texture size
 )
 
-var level = []string{
-	"#############################",
-	"#..............##############",
-	"#.##.###.#####.#............#",
-	"#.#....#.#...#.#............#",
-	"#.#.##.#.#...#.#............#",
-	"#...#....#...#.#............#",
-	"###.#.####.#.#.#............#",
-	"#...#....#.#................#",
-	"#.#...##.#.#.#.#............#",
-	"#.####.#.....#.#............#",
-	"#......#.###.#.#............#",
-	"#.####.#.#...#.#............#",
-	"#......#...#...##############",
-	"#############################",
-}
+var level []string // set by Run
 
 func wall(x, y int) bool {
 	return y < 0 || y >= len(level) || x < 0 || x >= len(level[y]) || level[y][x] == '#'
@@ -139,8 +123,15 @@ func genTextures() {
 
 // ---------- entities ----------
 
+// Entity kinds for Spawn.
+const (
+	Grass   = iota // static billboard
+	Lantern        // drifting warm light
+	Firefly        // small flickering light
+)
+
 type ent struct {
-	kind        int // 0 grass, 1 lantern (moving light), 2 firefly
+	kind        int
 	x, y, z     float64
 	hx, hz      float64 // home
 	phase       float64
@@ -151,43 +142,28 @@ type ent struct {
 
 var ents []*ent
 
-func spawn() {
-	add := func(kind, cx, cz int) {
-		e := &ent{kind: kind, hx: float64(cx) + 0.5, hz: float64(cz) + 0.5, phase: rng.Float64() * 6.28}
-		e.x, e.z = e.hx, e.hz
-		switch kind {
-		case 0:
-			e.y, e.size, e.tex = 0.5-0.3, 0.6, texGrass
-		case 1:
-			e.y, e.size, e.tex, e.light, e.lr, e.lg, e.lb = -0.1, 0.12, texLantern, 0.9, 0.5, 0.7, 1
-		case 2:
-			e.y, e.size, e.tex, e.light, e.lr, e.lg, e.lb = 0.1, 0.04, texFirefly, 0.25, 0.6, 1, 0.5
-		}
-		ents = append(ents, e)
+// Spawn adds an entity of kind Grass, Lantern or Firefly at cell (x, y).
+func Spawn(kind, x, y int) {
+	e := &ent{kind: kind, hx: float64(x) + 0.5, hz: float64(y) + 0.5, phase: rng.Float64() * 6.28}
+	e.x, e.z = e.hx, e.hz
+	switch kind {
+	case Grass:
+		e.y, e.size, e.tex = 0.5-0.3, 0.6, texGrass
+	case Lantern:
+		e.y, e.size, e.tex, e.light, e.lr, e.lg, e.lb = -0.1, 0.12, texLantern, 0.9, 0.5, 0.7, 1
+	case Firefly:
+		e.y, e.size, e.tex, e.light, e.lr, e.lg, e.lb = 0.1, 0.04, texFirefly, 0.25, 0.6, 1, 0.5
 	}
-	for _, c := range [][2]int{{10, 3}, {11, 4}, {12, 3}, {11, 3}, {8, 7}, {1, 10}, {3, 10}, {1, 7}} {
-		add(0, c[0], c[1])
-	}
-	add(1, 1, 1)
-	add(1, 8, 12)
-	add(1, 21, 6)
-	for _, c := range [][2]int{{10, 4}, {12, 4}, {11, 5}, {2, 7}, {4, 10}, {18, 4}, {25, 9}, {24, 3}} {
-		add(2, c[0], c[1])
-	}
+	ents = append(ents, e)
 }
 
 func updateEnts(t float64) {
 	for _, e := range ents {
 		switch e.kind {
-		case 1: // lanterns patrol their corridor
-			if e.hx < 5 {
-				e.x = 8 + 6.5*math.Sin(t*0.5+e.phase)
-			} else if e.hx > 16 { // big room: slow orbit
-				e.x, e.z = e.hx+3.5*math.Sin(t*0.3+e.phase), e.hz+3.5*math.Cos(t*0.3+e.phase)
-			} else {
-				e.x = 9.5 + math.Sin(t*0.8+e.phase)
-			}
-		case 2:
+		case Lantern: // ponytail: lanterns drift around home; give ent a path when a map needs patrols
+			e.x = e.hx + 0.35*math.Sin(t*0.5+e.phase)
+			e.z = e.hz + 0.35*math.Cos(t*0.4+e.phase)
+		case Firefly:
 			e.x = e.hx + 0.35*math.Sin(t*1.3+e.phase)*math.Cos(t*0.7+e.phase)
 			e.z = e.hz + 0.35*math.Cos(t*1.1+e.phase)
 			e.y = 0.1 + 0.15*math.Sin(t*2.1+e.phase)
@@ -655,23 +631,33 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 }
 `
 
-func main() {
+// Run opens the window and plays the given map ('#' walls, anything else floor) from cell (x, y)
+// facing dir (0 north, 1 east, 2 south, 3 west). Call Spawn before Run to place entities.
+func Run(lvl []string, x, y, dir int) error {
+	level = lvl
 	genTextures()
-	spawn()
+	for _, e := range ents {
+		switch e.kind {
+		case Grass:
+			e.tex = texGrass
+		case Lantern:
+			e.tex = texLantern
+		case Firefly:
+			e.tex = texFirefly
+		}
+	}
 	tsh, err := ebiten.NewShader([]byte(texSrc))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	sh, err := ebiten.NewShader([]byte(ditherSrc))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	g := &Game{x: 1, y: 1, dir: 1, dither: true, smooth: true, torch: 1, t: 1, scene: ebiten.NewImage(W, H), shader: sh, texShader: tsh}
-	g.tx, g.tz, g.ta = 1.5, 1.5, math.Pi/2
+	g := &Game{x: x, y: y, dir: dir, dither: true, smooth: true, torch: 1, t: 1, scene: ebiten.NewImage(W, H), shader: sh, texShader: tsh}
+	g.tx, g.tz, g.ta = float64(x)+0.5, float64(y)+0.5, float64(dir)*math.Pi/2
 	g.fx, g.fz, g.fa = g.tx, g.tz, g.ta
 	ebiten.SetWindowSize(W, H)
 	ebiten.SetWindowTitle("Blobber")
-	if err := ebiten.RunGame(g); err != nil {
-		log.Fatal(err)
-	}
+	return ebiten.RunGame(g)
 }

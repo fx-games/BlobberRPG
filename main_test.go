@@ -1,4 +1,4 @@
-package main
+package blobber
 
 import (
 	"math"
@@ -8,6 +8,7 @@ import (
 )
 
 func TestCore(t *testing.T) {
+	level = testLevel
 	if !wall(-1, 0) || !wall(0, 0) || wall(1, 1) {
 		t.Fatal("wall(): outside map and '#' must be wall, '.' must not")
 	}
