@@ -66,7 +66,7 @@ func (c *console) enter(name string) (*world, error) {
 
 // load reads maps/<name>.map (grid plus object/item/monster/deco lines) and maps/<name>.evt.
 func (c *console) load(name string) (*world, error) {
-	mf, err := maps.FS.Open(name + ".map")
+	mf, err := maps.Open(name + ".map")
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (c *console) load(name string) (*world, error) {
 		return nil, err
 	}
 	if !c.vm.Loaded(name) {
-		ef, err := maps.FS.Open(name + ".evt")
+		ef, err := maps.Open(name + ".evt")
 		if err == nil {
 			defer ef.Close()
 			err = c.vm.Load(name, ef)
@@ -177,7 +177,7 @@ func (c *console) PlayMusic(s string) { sfx.Music(s) }
 
 // Cutscene shows maps/cutscenes/<name>.txt full screen. The script carries on underneath.
 func (c *console) Cutscene(s string) {
-	f, err := maps.FS.Open("cutscenes/" + s + ".txt")
+	f, err := maps.Open("cutscenes/" + s + ".txt")
 	if err != nil {
 		fmt.Println("  cutscene:", err)
 		return

@@ -42,7 +42,7 @@ func main() {
 	}
 	pt.AddItem(party.NewItem("potion", 0))
 	pt.AddItem(party.NewItem("potion", 0))
-	if f, err := maps.FS.Open("npcs.txt"); err == nil {
+	if f, err := maps.Open("npcs.txt"); err == nil {
 		ui.LoadNPCs(f)
 		f.Close()
 	}

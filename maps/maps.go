@@ -1,8 +1,13 @@
-// Package maps embeds the game's maps, event scripts, NPC registry and cutscenes,
-// so the game (including the browser build) needs no files beside it.
+//go:build !js
+
+// Package maps opens the game's maps, event scripts, NPC registry and cutscenes:
+// from the maps/ directory on disk, except in the browser build, which embeds them.
 package maps
 
-import "embed"
+import (
+	"io"
+	"os"
+)
 
-//go:embed *.map *.evt *.txt cutscenes
-var FS embed.FS
+// Open opens maps/<name> on disk.
+func Open(name string) (io.ReadCloser, error) { return os.Open("maps/" + name) }
