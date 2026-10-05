@@ -1,6 +1,7 @@
 package blobber
 
 import (
+	"image"
 	"math"
 	"testing"
 )
@@ -63,5 +64,19 @@ func BenchmarkVisibleCells(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		visCache.cells = nil
 		visibleCells(c)
+	}
+}
+
+func TestBoltHitsActor(t *testing.T) {
+	defer SwapPopulation(SwapPopulation(nil))
+	SpawnActor(image.NewRGBA(image.Rect(0, 0, 1, 1)), 3, 4)
+	if hitActor(2, 4, 5) || !hitActor(3, 4, 5) || len(actors) != 1 {
+		t.Fatal("first hit wounds")
+	}
+	killed := false
+	OnKill = func(x, y int) { killed = x == 3 && y == 4 }
+	defer func() { OnKill = nil }()
+	if !hitActor(3, 4, 5) || len(actors) != 0 || !killed {
+		t.Fatal("second hit kills")
 	}
 }

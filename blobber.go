@@ -4,11 +4,17 @@
 package blobber
 
 import (
+	"blobber/font"
 	"fmt"
+	"image"
 	"image/color"
+	"image/png"
+	"io"
 	"math"
 	"math/rand"
+	"os"
 	"sort"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -30,8 +36,168 @@ const (
 
 var level []string // set by Run
 
+// LoadMap reads a map file: one row per line, '.' floor, other characters walls by material.
+// Lines starting with a lowercase word and a space ("object ...", "item ...") are not grid rows;
+// they are returned in extra for the host to interpret.
+func LoadMap(r io.Reader) (rows, extra []string, err error) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		l = strings.TrimRight(l, "\r")
+		switch {
+		case l == "":
+		case l[0] >= 'a' && l[0] <= 'z' && strings.Contains(l, " "):
+			extra = append(extra, l)
+		default:
+			rows = append(rows, l)
+		}
+	}
+	return rows, extra, nil
+}
+
+// Object is a static billboard standing in a cell: map props, levers, items on the floor.
+// Size is its longest side in tiles. Objects outside the map are hidden.
+type Object struct {
+	X, Y int
+	Img  *ebiten.Image
+	Size float64
+}
+
+// Objects is the host-maintained list of objects on the current map.
+var Objects []*Object
+
+// Overlay is a full-screen modal (inventory, ...). Update returns false to close it.
+// While one is open the party cannot move; tweens still finish.
+type Overlay interface {
+	Update() bool
+	Draw(screen *ebiten.Image)
+}
+
+var Modal Overlay
+
+// Keys binds extra keys to host actions; checked while no prompt or modal is open.
+var Keys = map[ebiten.Key]func(){}
+
+// Prompt is a modal question: digits / y / n answer a choice, or free text with Enter (Escape = "").
+// Movement is blocked while one is up; signs and tweens are untouched.
+type Prompt struct {
+	Lines []string
+	Text  bool // free text entry
+	input string
+	on    func(answer string)
+}
+
+var prompt *Prompt
+
+func ShowPrompt(lines []string, text bool, on func(string)) {
+	prompt = &Prompt{Lines: lines, Text: text, on: on}
+}
+
+func (p *Prompt) update() {
+	done := func(a string) { prompt = nil; p.on(a) }
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		done("")
+		return
+	}
+	chars := string(ebiten.AppendInputChars(nil))
+	if p.Text {
+		p.input += chars
+		if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && len(p.input) > 0 {
+			p.input = p.input[:len(p.input)-1]
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			done(p.input)
+		}
+		return
+	}
+	for _, r := range chars {
+		if r >= '0' && r <= '9' || r == 'y' || r == 'n' {
+			done(string(r))
+			return
+		}
+	}
+}
+
+func (p *Prompt) draw(screen *ebiten.Image) {
+	lines := p.Lines
+	if p.Text {
+		lines = append(append([]string{}, lines...), "> "+p.input+"_")
+	}
+	if Window != nil {
+		Window(screen, "", lines, -1, true)
+		return
+	}
+	bw, bh := float32(W)*0.6, float32(16*len(lines)+24)
+	bx, by := (float32(W)-bw)/2, float32(H)-bh-40
+	vector.DrawFilledRect(screen, bx, by, bw, bh, color.RGBA{0, 0, 0, 210}, false)
+	vector.StrokeRect(screen, bx, by, bw, bh, 2, color.RGBA{200, 180, 120, 255}, false)
+	for i, l := range lines {
+		font.Print(screen, l, int(bx)+12, int(by)+12+i*16)
+	}
+}
+
+// DebugLines, if set, supplies the text of the debug panel toggled with P.
+// OnPromptAnswer, if set, supplies extra lines (the character list) for "who will" prompts;
+// hosts also use it as the signal that prompt UI is available.
+// TileMarks, if set, returns the special tiles of the current map for the minimap:
+// bit 1 = automatic event, bit 2 = use (searchable) event.
+var (
+	DebugLines     func() []string
+	HUD            func(screen *ebiten.Image) // drawn over the scene, under prompts and modals
+	OnClick        func(x, y int) bool        // left click / tap in screen pixels; true = handled, no walking
+	OnPromptAnswer func() []string
+	TileMarks      func() map[[2]int]int
+
+	// Skin hooks; nil keeps the plain built-in look.
+	Window    func(screen *ebiten.Image, title string, lines []string, sel int, bottom bool) // text window
+	SignImage func(lines []string) *ebiten.Image                                             // world text plaque
+	Panel     func(screen *ebiten.Image, r image.Rectangle)                                  // backdrop, e.g. the minimap
+)
+
+// OnMove is called after every step or turn with the new position and facing (0=N 1=E 2=S 3=W).
+// OnUse is called when the player presses F (search / interact) on the current tile.
+var OnMove, OnUse func(x, y, dir int)
+
+// sign is world text: a self-lit billboard sitting as far ahead of its cell center as the eye sits behind.
+var sign struct {
+	x, y, dir int
+	tex       *ebiten.Image
+}
+
+// ShowSign puts lines of text into the world at cell (x, y), on the dir side. ClearSign removes it.
+func ShowSign(x, y, dir int, lines []string) {
+	if SignImage != nil {
+		sign.x, sign.y, sign.dir, sign.tex = x, y, dir, SignImage(lines)
+		return
+	}
+	w := 8
+	for _, l := range lines {
+		w = max(w, font.Width(l)+8)
+	}
+	img := ebiten.NewImage(w, 16*len(lines)+8)
+	for i, l := range lines {
+		font.Print(img, l, 4, 4+16*i)
+	}
+	sign.x, sign.y, sign.dir, sign.tex = x, y, dir, img
+}
+
+func ClearSign() { sign.tex = nil }
+
+// Map cells: '.' is floor, anything else is a wall whose character picks the material (see mats).
 func wall(x, y int) bool {
-	return y < 0 || y >= len(level) || x < 0 || x >= len(level[y]) || level[y][x] == '#'
+	return y < 0 || y >= len(level) || x < 0 || x >= len(level[y]) || level[y][x] != '.'
+}
+
+// material returns the front/right/left textures of the wall at (x, y); unknown chars use stone.
+func material(x, y int) *[3]*ebiten.Image {
+	if y >= 0 && y < len(level) && x >= 0 && x < len(level[y]) {
+		if m := mats[level[y][x]]; m != nil {
+			return m
+		}
+	}
+	return mats['#']
 }
 
 // ---------- startup texture generation (the "fake 3D" trick) ----------
@@ -95,29 +261,68 @@ var (
 	stone                                          = [3]float64{150, 130, 110}
 	mortarC                                        = [3]float64{80, 72, 70}
 	texFront, texRight, texLeft, texFloor, texCeil *ebiten.Image
-	texGrass, texLantern, texFirefly               *ebiten.Image
+	texGrass, texLantern, texFirefly, texFireball  *ebiten.Image
+	texBolt                                        *ebiten.Image
 	atlas                                          []struct {
 		name string
 		img  *ebiten.Image
 	}
 )
 
+// Materials: map character -> base and mortar colours. The editor palette mirrors this table.
+// MatColors lists the wall materials by map character: base and mortar colour.
+var MatColors = map[byte][2][3]float64{
+	'#': {stone, mortarC},
+	'B': {{150, 70, 55}, {90, 60, 50}},  // brick
+	'M': {{90, 120, 70}, {50, 65, 45}},  // mossy stone
+	'W': {{130, 95, 55}, {70, 50, 30}},  // wood
+	'I': {{95, 100, 115}, {50, 52, 60}}, // iron
+}
+
+var mats = map[byte]*[3]*ebiten.Image{}
+
+// Material returns the generated front texture of a wall character (nil if unknown). Call GenTextures first.
+func Material(ch byte) *ebiten.Image {
+	if m := mats[ch]; m != nil {
+		return m[0]
+	}
+	return nil
+}
+
+// GenTextures bakes all textures; Run does this itself, the editor calls it directly.
+func GenTextures() { genTextures() }
+
 func genTextures() {
 	rng.Seed(7)
 	atlas = nil
-	texFront = genStone(64, 32, true, stone, mortarC, 0.3, -1)
-	texRight = genStone(64, 32, true, stone, mortarC, 1, -0.4) // wall on our left, face points right
-	texLeft = genStone(64, 32, true, stone, mortarC, -1, -0.4) // wall on our right, face points left
+	for ch, c := range MatColors {
+		mats[ch] = &[3]*ebiten.Image{
+			genStone(64, 32, true, c[0], c[1], 0.3, -1),
+			genStone(64, 32, true, c[0], c[1], 1, -0.4),  // wall on our left, face points right
+			genStone(64, 32, true, c[0], c[1], -1, -0.4), // wall on our right, face points left
+		}
+	}
+	texFront, texRight, texLeft = mats['#'][0], mats['#'][1], mats['#'][2]
 	texFloor = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
 	texCeil = genStone(64, 64, false, [3]float64{70, 66, 72}, [3]float64{40, 38, 42}, 0.4, 1)
 	texGrass = genGrass()
 	texLantern = genSolid(color.RGBA{255, 220, 150, 255})
 	texFirefly = genSolid(color.RGBA{200, 255, 180, 255})
+	texFireball = genSolid(color.RGBA{255, 90, 30, 255})
+	texBolt = genSolid(color.RGBA{170, 210, 255, 255})
 	for _, e := range []struct {
 		name string
 		img  *ebiten.Image
 	}{{"front", texFront}, {"right", texRight}, {"left", texLeft}, {"floor", texFloor}, {"ceil", texCeil}, {"grass", texGrass}} {
 		atlas = append(atlas, e)
+	}
+	for ch, m := range mats {
+		if ch != '#' {
+			atlas = append(atlas, struct {
+				name string
+				img  *ebiten.Image
+			}{string(ch), m[0]})
+		}
 	}
 }
 
@@ -125,9 +330,10 @@ func genTextures() {
 
 // Entity kinds for Spawn.
 const (
-	Grass   = iota // static billboard
-	Lantern        // drifting warm light
-	Firefly        // small flickering light
+	Grass    = iota // static billboard
+	Lantern         // drifting warm light
+	Firefly         // small flickering light
+	Fireball        // glowing bolt flying straight until it hits a wall or a monster
 )
 
 type ent struct {
@@ -135,6 +341,8 @@ type ent struct {
 	x, y, z     float64
 	hx, hz      float64 // home
 	phase       float64
+	vx, vz      float64 // cells/sec, Fireball only
+	dmg         int     // Fireball only: damage to the monster it hits
 	size, light float64
 	lr, lg, lb  float64
 	tex         *ebiten.Image
@@ -158,8 +366,16 @@ func Spawn(kind, x, y int) {
 }
 
 func updateEnts(t float64) {
+	live := ents[:0]
 	for _, e := range ents {
 		switch e.kind {
+		case Fireball:
+			e.x, e.z = e.x+e.vx/60, e.z+e.vz/60
+			e.light = 1.2 + 0.3*math.Sin(t*25+e.phase)
+			cx, cz := int(math.Floor(e.x)), int(math.Floor(e.z))
+			if wall(cx, cz) || hitActor(cx, cz, e.dmg) {
+				continue
+			}
 		case Lantern: // ponytail: lanterns drift around home; give ent a path when a map needs patrols
 			e.x = e.hx + 0.35*math.Sin(t*0.5+e.phase)
 			e.z = e.hz + 0.35*math.Cos(t*0.4+e.phase)
@@ -169,6 +385,117 @@ func updateEnts(t float64) {
 			e.y = 0.1 + 0.15*math.Sin(t*2.1+e.phase)
 			e.light = 0.25 + 0.2*math.Sin(t*5+e.phase*3)
 		}
+		live = append(live, e)
+	}
+	ents = live
+	lightLeft = max(0, lightLeft-1.0/60)
+}
+
+// lightLeft is how many more seconds a Light spell brightens the torch.
+var lightLeft float64
+
+// Light brightens the party's light for secs seconds.
+func Light(secs float64) { lightLeft = secs }
+
+// OnKill, if set, is called when a bolt kills a monster.
+var OnKill func(x, y int)
+
+// hitActor deals dmg to the first monster in cell (x, y); it reports whether one was there.
+func hitActor(x, y, dmg int) bool {
+	for i, a := range actors {
+		if a.x == x && a.y == y {
+			if a.hp -= dmg; a.hp <= 0 {
+				actors = append(actors[:i], actors[i+1:]...)
+				if OnKill != nil {
+					OnKill(x, y)
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// shoot launches a debug fireball (Space).
+func (g *Game) shoot() { Bolt(5, 6, 1, 0.3, 0.1) }
+
+// Bolt launches a glowing projectile coloured r,g,b from the party in the facing direction,
+// flying speed cells/sec, dealing dmg to the first monster it reaches.
+func Bolt(dmg int, speed, r, g, b float64) {
+	gm := game
+	d := dirs[gm.dir]
+	tex := texFireball
+	if b > r {
+		tex = texBolt
+	}
+	ents = append(ents, &ent{kind: Fireball, x: gm.tx, y: 0, z: gm.tz, vx: float64(d[0]) * speed, vz: float64(d[1]) * speed,
+		dmg: dmg, size: 0.15, light: 1.2, lr: r, lg: g, lb: b, tex: tex, phase: rng.Float64() * 6.28})
+}
+
+// ---------- actors ----------
+
+// Actor is a monster: a lit billboard standing on the floor of a cell, wandering at random.
+type Actor struct {
+	x, y              int     // cell
+	fx, fz, tx, tz, t float64 // tween from/to and progress
+	wait              float64 // seconds until next step
+	tex               *ebiten.Image
+	hp                int
+}
+
+var actors []*Actor
+
+// Population is the set of monsters and decorations of one map.
+type Population struct {
+	actors []*Actor
+	ents   []*ent
+}
+
+// Len counts monsters and decorations.
+func (p *Population) Len() int { return len(p.actors) + len(p.ents) }
+
+// SwapPopulation makes next the live population and returns the previous one (nil next = empty).
+// Hosts keep one per map so monsters and decorations stay where they belong across teleports.
+func SwapPopulation(next *Population) *Population {
+	prev := &Population{actors, ents}
+	if next == nil {
+		next = &Population{}
+	}
+	actors, ents = next.actors, next.ents
+	return prev
+}
+
+// SpawnActor places a monster drawn with img (e.g. a decoded PNG) at cell (x, y).
+func SpawnActor(img image.Image, x, y int) {
+	a := &Actor{x: x, y: y, t: 1, wait: rng.Float64() * 2, tex: ebiten.NewImageFromImage(img), hp: 10}
+	a.tx, a.tz = float64(x)+0.5, float64(y)+0.5
+	a.fx, a.fz = a.tx, a.tz
+	actors = append(actors, a)
+}
+
+func (a *Actor) pos() (float64, float64) {
+	e := a.t * a.t * (3 - 2*a.t)
+	return a.fx + (a.tx-a.fx)*e, a.fz + (a.tz-a.fz)*e
+}
+
+// ponytail: pure random walk, no player avoidance beyond "not into the player's cell"; add chase AI when combat exists.
+func (g *Game) updateActors(dt float64) {
+	for _, a := range actors {
+		if a.t < 1 {
+			a.t = math.Min(1, a.t+dt/0.6)
+			continue
+		}
+		if a.wait -= dt; a.wait > 0 {
+			continue
+		}
+		a.wait = 0.5 + rng.Float64()*2
+		d := dirs[rng.Intn(4)]
+		nx, ny := a.x+d[0], a.y+d[1]
+		if wall(nx, ny) || (nx == g.x && ny == g.y) {
+			continue
+		}
+		a.fx, a.fz, a.x, a.y, a.t = a.tx, a.tz, nx, ny, 0
+		a.tx, a.tz = float64(nx)+0.5, float64(ny)+0.5
 	}
 }
 
@@ -184,6 +511,7 @@ type Game struct {
 	time                   float64
 	// settings
 	dither, smooth, menu, atlasView bool
+	debug                           bool
 	torch                           float64
 	sel                             int
 	scene                           *ebiten.Image
@@ -210,6 +538,9 @@ func (g *Game) startMove(nx, ny, ndir int, sway float64) {
 	g.t, g.moving, g.sway = 0, true, sway
 	if !g.smooth {
 		g.t = 1
+	}
+	if OnMove != nil {
+		OnMove(nx, ny, ndir)
 	}
 }
 
@@ -243,27 +574,59 @@ func (g *Game) act(k ebiten.Key) {
 func (g *Game) Update() error {
 	g.time += 1.0 / 60
 	updateEnts(g.time)
+	g.updateActors(1.0 / 60)
 	if inpututil.IsKeyJustPressed(ebiten.KeyF1) {
 		g.atlasView = !g.atlasView
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
-		g.menu = !g.menu
+	if inpututil.IsKeyJustPressed(ebiten.KeyP) {
+		g.debug = !g.debug
+	}
+	if prompt != nil {
+		prompt.update()
+		g.tween()
+		return nil
+	}
+	if m := Modal; m != nil {
+		if !m.Update() && Modal == m { // closing may have opened the next window
+			Modal = nil
+		}
+		g.tween()
+		return nil
+	}
+	for k, f := range Keys {
+		if inpututil.IsKeyJustPressed(k) {
+			f()
+		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+		g.menu = !g.menu // Esc opens the menu (Quit is in it) and closes it again
 	}
 	if g.menu {
-		g.updateMenu()
+		if g.updateMenu() {
+			return ebiten.Termination
+		}
 	} else {
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+			g.shoot()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyF) && !g.moving && OnUse != nil {
+			OnUse(g.x, g.y, g.dir)
+		}
 		for _, k := range []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyA, ebiten.KeyD, ebiten.KeyQ, ebiten.KeyE, ebiten.KeyUp, ebiten.KeyDown, ebiten.KeyLeft, ebiten.KeyRight} {
-			if inpututil.IsKeyJustPressed(k) {
+			if inpututil.IsKeyJustPressed(k) || (!g.moving && ebiten.IsKeyPressed(k)) { // held key = continuous
 				g.act(k)
 			}
 		}
 		// mouse / touch: middle third walks, sides turn
-		px := -1
+		px, py := -1, -1
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			px, _ = ebiten.CursorPosition()
+			px, py = ebiten.CursorPosition()
 		}
 		for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
-			px, _ = ebiten.TouchPosition(id)
+			px, py = ebiten.TouchPosition(id)
+		}
+		if px >= 0 && OnClick != nil && OnClick(px, py) {
+			px = -1
 		}
 		switch {
 		case px < 0:
@@ -275,27 +638,35 @@ func (g *Game) Update() error {
 			g.act(ebiten.KeyW)
 		}
 	}
+	g.tween()
+	return nil
+}
+
+func (g *Game) tween() {
 	if g.moving {
 		g.t += 1 / (60 * g.dur)
 		if g.t >= 1 {
 			g.t, g.moving = 1, false
-			if g.queued != 0 {
+			if g.queued != 0 && prompt == nil {
 				k := g.queued
 				g.queued = 0
 				g.act(k)
 			}
 		}
 	}
-	return nil
 }
 
-func (g *Game) updateMenu() {
-	n := 5
+// updateMenu reports true when Quit was chosen.
+func (g *Game) updateMenu() bool {
+	n := 6
 	if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
 		g.sel = (g.sel + n - 1) % n
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
 		g.sel = (g.sel + 1) % n
+	}
+	if g.sel == 5 && (inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyRight)) {
+		return true
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		switch g.sel {
@@ -316,6 +687,7 @@ func (g *Game) updateMenu() {
 			ebiten.SetFullscreen(!ebiten.IsFullscreen())
 		}
 	}
+	return false
 }
 
 // ---------- rendering ----------
@@ -401,7 +773,7 @@ func (g *Game) light(c cam, v *vert) {
 		v.r, v.g, v.b = v.r+a*r, v.g+a*gg, v.b+a*b
 	}
 	v.r, v.g, v.b = 0.03, 0.03, 0.04
-	add(c.x, 0, c.z, g.torch, 1, 0.85, 0.65)
+	add(c.x, 0, c.z, g.torch+min(1.5, lightLeft), 1, 0.85, 0.65)
 	for _, e := range ents {
 		if e.light > 0 {
 			add(e.x, e.y, e.z, e.light, e.lr, e.lg, e.lb)
@@ -421,7 +793,7 @@ func (g *Game) drawQuad(dst *ebiten.Image, c cam, f *face) {
 			bil := func(s, t float64) vert {
 				a, b := lerp(f.v[0], f.v[1], s), lerp(f.v[3], f.v[2], s)
 				v := lerp(a, b, t)
-				if f.tex == texFirefly || f.tex == texLantern {
+				if f.tex == texFirefly || f.tex == texLantern || f.tex == sign.tex {
 					v.r, v.g, v.b = 1, 1, 1 // self-lit
 				} else {
 					g.light(c, &v)
@@ -468,6 +840,7 @@ func (g *Game) drawQuad(dst *ebiten.Image, c cam, f *face) {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	defer maybeShot(screen)
 	if g.atlasView {
 		g.drawAtlas(screen)
 		return
@@ -500,11 +873,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				continue
 			}
 			nx := s.nx*c.rtx + s.nz*c.rtz // normal in camera space, lateral component
-			t := texFront
+			m := material(cx+dirs[i][0], cy+dirs[i][1])
+			t := m[0]
 			if nx > 0.5 {
-				t = texRight
+				t = m[1]
 			} else if nx < -0.5 {
-				t = texLeft
+				t = m[2]
 			}
 			q(vert{s.ax, -0.5, s.az, 0, 0, 0, 0, 0}, vert{s.bx, -0.5, s.bz, 1, 0, 0, 0, 0}, vert{s.bx, 0.5, s.bz, 1, 1, 0, 0, 0}, vert{s.ax, 0.5, s.az, 0, 1, 0, 0, 0}, t, 3)
 		}
@@ -516,6 +890,40 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		hx, hz := c.rtx*e.size/2, c.rtz*e.size/2
 		q(vert{e.x - hx, e.y - e.size/2, e.z - hz, 0, 0, 0, 0, 0}, vert{e.x + hx, e.y - e.size/2, e.z + hz, 1, 0, 0, 0, 0},
 			vert{e.x + hx, e.y + e.size/2, e.z + hz, 1, 1, 0, 0, 0}, vert{e.x - hx, e.y + e.size/2, e.z - hz, 0, 1, 0, 0, 0}, e.tex, 1)
+	}
+	for _, o := range Objects { // props and floor items: static floor-standing billboards
+		if _, ok := visibleCells(c)[[2]int{o.X, o.Y}]; !ok || o.Img == nil {
+			continue
+		}
+		ox, oz := float64(o.X)+0.5+c.fwx*eyeBack, float64(o.Y)+0.5+c.fwz*eyeBack
+		b := o.Img.Bounds()
+		k := o.Size / math.Max(float64(b.Dx()), float64(b.Dy()))
+		wid, hgt := k*float64(b.Dx()), k*float64(b.Dy())
+		hx, hz := c.rtx*wid/2, c.rtz*wid/2
+		q(vert{ox - hx, 0.5 - hgt, oz - hz, 0, 0, 0, 0, 0}, vert{ox + hx, 0.5 - hgt, oz + hz, 1, 0, 0, 0, 0},
+			vert{ox + hx, 0.5, oz + hz, 1, 1, 0, 0, 0}, vert{ox - hx, 0.5, oz - hz, 0, 1, 0, 0, 0}, o.Img, 1)
+	}
+	for _, a := range actors { // monsters: floor-standing billboards
+		ax, az := a.pos()
+		if _, ok := visibleCells(c)[[2]int{int(math.Floor(ax)), int(math.Floor(az))}]; !ok {
+			continue
+		}
+		ax, az = ax+c.fwx*eyeBack, az+c.fwz*eyeBack // mirror the eye's offset: monster sits as far behind its cell center as we sit behind ours
+		b := a.tex.Bounds()
+		k := 0.6 / math.Max(float64(b.Dx()), float64(b.Dy())) // longest side = 0.6 tiles
+		wid, hgt := k*float64(b.Dx()), k*float64(b.Dy())
+		hx, hz := c.rtx*wid/2, c.rtz*wid/2
+		q(vert{ax - hx, 0.5 - hgt, az - hz, 0, 0, 0, 0, 0}, vert{ax + hx, 0.5 - hgt, az + hz, 1, 0, 0, 0, 0},
+			vert{ax + hx, 0.5, az + hz, 1, 1, 0, 0, 0}, vert{ax - hx, 0.5, az - hz, 0, 1, 0, 0, 0}, a.tex, 1)
+	}
+	if sign.tex != nil {
+		d := dirs[sign.dir]
+		sx, sz := float64(sign.x)+0.5+float64(d[0])*eyeBack, float64(sign.y)+0.5+float64(d[1])*eyeBack
+		b := sign.tex.Bounds()
+		wid, hgt := float64(b.Dx())/400, float64(b.Dy())/400 // 400 texture px per tile
+		hx, hz := c.rtx*wid/2, c.rtz*wid/2
+		q(vert{sx - hx, -hgt / 2, sz - hz, 0, 0, 0, 0, 0}, vert{sx + hx, -hgt / 2, sz + hz, 1, 0, 0, 0, 0},
+			vert{sx + hx, hgt / 2, sz + hz, 1, 1, 0, 0, 0}, vert{sx - hx, hgt / 2, sz - hz, 0, 1, 0, 0, 0}, sign.tex, 1)
 	}
 	// ponytail: painter's sort by face-center depth; z-buffer if overlap artifacts show up.
 	// Floor/ceiling first: at eye height they can't occlude walls or billboards, but their centers can sort nearer.
@@ -535,10 +943,49 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawRectShader(W, H, g.shader, op)
 	}
 	g.drawMinimap(screen, c)
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("%.0f fps  pos %d,%d facing %c   WASD move  Q/E turn  click: sides turn, middle walk  Enter: menu  F1: atlas", ebiten.ActualFPS(), g.x, g.y, "NESW"[g.dir]))
+	font.Print(screen, fmt.Sprintf("%.0f fps  pos %d,%d facing %c   WASD move  Q/E turn  Space fire  F search/take  I inventory  C cast  P party  Esc menu  click: sides turn, middle walk  Enter: menu  F1: atlas", ebiten.ActualFPS(), g.x, g.y, "NESW"[g.dir]), 4, 0)
+	if HUD != nil {
+		HUD(screen)
+	}
 	if g.menu {
 		g.drawMenu(screen)
 	}
+	if prompt != nil {
+		prompt.draw(screen)
+	}
+	if Modal != nil {
+		Modal.Draw(screen)
+	}
+	if g.debug && DebugLines != nil && Window != nil {
+		Window(screen, "PARTY", DebugLines(), -1, false)
+	} else if g.debug && DebugLines != nil {
+		lines := DebugLines()
+		vector.DrawFilledRect(screen, 0, 20, float32(W), float32(16*len(lines)+8), color.RGBA{0, 0, 0, 180}, false)
+		for i, l := range lines {
+			font.Print(screen, l, 6, 24+i*16)
+		}
+	}
+}
+
+// BLOBBER_SHOT=file.png saves the 30th frame and quits: a way to check the look without a person at the keys.
+var shotFrames int
+
+func maybeShot(screen *ebiten.Image) {
+	path := os.Getenv("BLOBBER_SHOT")
+	if path == "" {
+		return
+	}
+	if shotFrames++; shotFrames < 30 {
+		return
+	}
+	img := image.NewRGBA(screen.Bounds())
+	screen.ReadPixels(img.Pix)
+	f, err := os.Create(path)
+	if err == nil {
+		png.Encode(f, img)
+		f.Close()
+	}
+	os.Exit(0)
 }
 
 func onOff(b bool) string {
@@ -549,27 +996,31 @@ func onOff(b bool) string {
 }
 
 func (g *Game) drawMenu(screen *ebiten.Image) {
+	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), fmt.Sprintf("Heightmap bump:    %.2f", bump), "Fullscreen:        " + onOff(ebiten.IsFullscreen()), "Quit game"}
+	if Window != nil {
+		Window(screen, "MENU", append(items, "", "up/down choose, Space change, Esc closes"), g.sel, false)
+		return
+	}
 	ebitenutil.DrawRect(screen, float64(W/2-130), float64(H/2-60), 260, 152, color.RGBA{0, 0, 0, 200})
-	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), fmt.Sprintf("Heightmap bump:    %.2f", bump), "Fullscreen:        " + onOff(ebiten.IsFullscreen())}
-	ebitenutil.DebugPrintAt(screen, "SETTINGS  (up/down, left/right, Enter closes)", W/2-120, H/2-50)
+	font.Print(screen, "SETTINGS  (up/down, left/right, Enter closes)", W/2-120, H/2-50)
 	for i, s := range items {
 		cur := "  "
 		if i == g.sel {
 			cur = "> "
 		}
-		ebitenutil.DebugPrintAt(screen, cur+s, W/2-120, H/2-20+i*16)
+		font.Print(screen, cur+s, W/2-120, H/2-20+i*16)
 	}
 }
 
 func (g *Game) drawAtlas(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{30, 30, 40, 255})
-	ebitenutil.DebugPrint(screen, "Generated texture atlas (F1 to return). Bump details baked from the heightmap per facing.")
+	font.Print(screen, "Generated texture atlas (F1 to return). Bump details baked from the heightmap per facing.", 4, 0)
 	for i, a := range atlas {
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Scale(2, 2)
 		op.GeoM.Translate(float64(20+i*140%560), float64(40+(i*140/560)*170))
 		screen.DrawImage(a.img, op)
-		ebitenutil.DebugPrintAt(screen, a.name, 20+i*140%560, 40+(i*140/560)*170+132)
+		font.Print(screen, a.name, 20+i*140%560, 40+(i*140/560)*170+132)
 	}
 }
 
@@ -578,11 +1029,27 @@ func (g *Game) drawMinimap(screen *ebiten.Image, c cam) {
 	const r = 7                                             // half window
 	cs := float32(5 * ebiten.Monitor().DeviceScaleFactor()) // cell size in px
 	ox, oy := float32(W)-cs*(2*r+3), 2*cs
-	vector.DrawFilledRect(screen, ox-cs, oy-cs, cs*(2*r+3), cs*(2*r+3), color.RGBA{0, 0, 0, 160}, false)
+	if Panel != nil {
+		m := 2 * cs // room for the frame
+		Panel(screen, image.Rect(int(ox-m), int(oy-m), int(ox+cs*(2*r+1)+m), int(oy+cs*(2*r+1)+m)))
+	} else {
+		vector.DrawFilledRect(screen, ox-cs, oy-cs, cs*(2*r+3), cs*(2*r+3), color.RGBA{0, 0, 0, 160}, false)
+	}
 	for y := g.y - r; y <= g.y+r; y++ {
 		for x := g.x - r; x <= g.x+r; x++ {
 			if wall(x, y) {
 				vector.DrawFilledRect(screen, ox+cs*float32(x-g.x+r), oy+cs*float32(y-g.y+r), cs, cs, color.RGBA{170, 160, 150, 255}, false)
+			}
+		}
+	}
+	if TileMarks != nil {
+		for t, bits := range TileMarks() {
+			if dx, dy := t[0]-g.x+r, t[1]-g.y+r; dx >= 0 && dx <= 2*r && dy >= 0 && dy <= 2*r {
+				col := color.RGBA{255, 140, 40, 255} // automatic: orange
+				if bits&2 != 0 {
+					col = color.RGBA{80, 200, 255, 255} // searchable: cyan
+				}
+				vector.DrawFilledCircle(screen, ox+cs*(float32(dx)+0.5), oy+cs*(float32(dy)+0.5), cs/3, col, true)
 			}
 		}
 	}
@@ -633,8 +1100,47 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 
 // Run opens the window and plays the given map ('#' walls, anything else floor) from cell (x, y)
 // facing dir (0 north, 1 east, 2 south, 3 west). Call Spawn before Run to place entities.
-func Run(lvl []string, x, y, dir int) error {
+var game *Game
+
+// SetMap swaps the level and places the party at (x, y) without a tween, keeping the facing.
+// Used by Run and by script teleports.
+func SetMap(lvl []string, x, y int) {
 	level = lvl
+	visCache.cells = nil
+	if game == nil {
+		game = &Game{t: 1}
+	}
+	g := game
+	g.x, g.y = x, y
+	g.tx, g.tz = float64(x)+0.5, float64(y)+0.5
+	g.fx, g.fz, g.fa = g.tx, g.tz, g.ta
+	g.t, g.moving, g.queued = 1, false, 0
+	ClearSign()
+}
+
+// SetCell rewrites one map cell ('.' floor or a wall material character).
+func SetCell(x, y int, ch byte) {
+	if y < 0 || y >= len(level) || x < 0 || x >= len(level[y]) {
+		return
+	}
+	row := []byte(level[y])
+	row[x] = ch
+	level[y] = string(row)
+	visCache.cells = nil
+}
+
+// Cell returns the map character at x,y, or 0 outside the map.
+func Cell(x, y int) byte {
+	if y < 0 || y >= len(level) || x < 0 || x >= len(level[y]) {
+		return 0
+	}
+	return level[y][x]
+}
+
+// Pos returns the party's cell and facing.
+func Pos() (x, y, dir int) { return game.x, game.y, game.dir }
+
+func Run(lvl []string, x, y, dir int) error {
 	genTextures()
 	for _, e := range ents {
 		switch e.kind {
@@ -654,9 +1160,11 @@ func Run(lvl []string, x, y, dir int) error {
 	if err != nil {
 		return err
 	}
-	g := &Game{x: x, y: y, dir: dir, dither: true, smooth: true, torch: 1, t: 1, scene: ebiten.NewImage(W, H), shader: sh, texShader: tsh}
-	g.tx, g.tz, g.ta = float64(x)+0.5, float64(y)+0.5, float64(dir)*math.Pi/2
-	g.fx, g.fz, g.fa = g.tx, g.tz, g.ta
+	g := &Game{dither: true, smooth: true, torch: 1, scene: ebiten.NewImage(W, H), shader: sh, texShader: tsh}
+	game = g
+	g.ta = float64(dir) * math.Pi / 2
+	g.dir = dir
+	SetMap(lvl, x, y)
 	ebiten.SetWindowSize(W, H)
 	ebiten.SetWindowTitle("Blobber")
 	return ebiten.RunGame(g)
