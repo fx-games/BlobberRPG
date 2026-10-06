@@ -333,6 +333,9 @@ func genTextures() {
 		genStone(16, 128, false, wood[0], wood[1], -1, -0.4),
 	}
 	mats[Door], mats[Locked] = door, door
+	if t := wallTexture("stone"); t != nil { // painted default wall; side faces get their shade from vertex light
+		mats['#'] = &[3]*ebiten.Image{t, t, t}
+	}
 	texFront, texRight, texLeft = mats['#'][0], mats['#'][1], mats['#'][2]
 	texFloor = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
 	texCeil = genStone(64, 64, false, [3]float64{70, 66, 72}, [3]float64{40, 38, 42}, 0.4, 1)
