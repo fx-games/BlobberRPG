@@ -1202,7 +1202,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if _, ok := visibleCells(c)[[2]int{int(math.Floor(ax)), int(math.Floor(az))}]; !ok {
 			continue
 		}
-		ax, az = ax+c.fwx*eyeBack, az+c.fwz*eyeBack // mirror the eye's offset: monster sits as far behind its cell center as we sit behind ours
+		ax, az = ax-c.fwx*eyeBack, az-c.fwz*eyeBack // mirror the eye: we stand at the back of our cell, the monster at the front of its, facing us
 		img := a.img()
 		b := img.Bounds()
 		k := 0.6 / math.Max(float64(b.Dx()), float64(b.Dy())) // longest side = 0.6 tiles
