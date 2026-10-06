@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -44,9 +45,11 @@ func main() {
 		ui.LoadNPCs(f)
 		f.Close()
 	}
-	if f, err := maps.Open("awards.txt"); err == nil {
-		ui.LoadAwards(f)
-		f.Close()
+	for name, load := range map[string]func(io.Reader){"awards.txt": ui.LoadAwards, "rumors.txt": ui.LoadRumors} {
+		if f, err := maps.Open(name); err == nil {
+			load(f)
+			f.Close()
+		}
 	}
 	host := newConsole(pt)
 	w, err := host.enter(host.start.m)

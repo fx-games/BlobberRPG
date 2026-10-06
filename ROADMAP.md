@@ -41,7 +41,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [~] Turn-based play everywhere (decision 1): step / bump-attack / wait = one turn, then monsters act. Casting costs a turn. Pending: block, speed.
 - [~] d20 to-hit vs AC with level and accuracy, weapon damage plus might. Pending: criticals, ranged row.
 - [ ] Conditions: poisoned, diseased, asleep, paralyzed, unconscious, dead, stone, eradicated, cursed, weak, drunk; effects on turns and stats; cure sources (spells, temple, time).
-- [~] Experience award and message strip done. Pending: loot drop, scrolling log.
+- [~] Experience, gold drop and message strip done. Pending: item loot, scrolling log.
 - [ ] Respawn rule: non-boss monsters return after N days.
 - [x] Party wipe → message, then the title menu.
 
@@ -66,7 +66,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 ### A5. Items
 
-- [ ] Armor families with materials (leather, scale, chain, splint, plate; helmets, shields, boots, cloaks, gauntlets) like weapons.
+- [~] Armor: leather, chainmail, plate, cloak, helmet, boots, shields by material. Pending: material tiers for body armor, gauntlets.
 - [ ] Enchantment model: material prefix + base + attribute suffix (`of Might`, `of Fire`, elemental damage, stat bonuses) with effects applied when worn.
 - [ ] Item generation by level for loot and chests; treasure tables per monster loot class.
 - [ ] Cursed, unidentified and broken items; identify and repair at the smith.
@@ -97,7 +97,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [ ] Temple: cure each condition, uncurse items, donate for a blessing.
 - [ ] Smith: repair, identify.
 - [ ] Bank: gems, interest per day.
-- [ ] Tavern: rumors and food prices from a per-town data file, not hardcoded.
+- [~] Tavern rumors from `maps/rumors.txt`. Pending: per-town files, prices.
 - [ ] Guild: membership + level-gated spells.
 
 ### A9. Audio
@@ -130,7 +130,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 - Properties `levitate light wizardeye walkonwater` are documented but not stored by the party.
 - Bolt spells fly in real time after the turn passes, so a monster may step out of the way.
-- Rumors, spells, item catalog and level-up costs are compiled in.
+- Spells and the item catalog are compiled in (rumors, awards, classes, races, monsters are data files).
 - NPC portraits are recoloured party portraits (see `maps/npcs.txt`).
 
 ## E. What you need to provide

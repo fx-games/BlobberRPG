@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
 	"image"
+	"io"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -155,18 +157,26 @@ func temple(p *party.Party) []Offer {
 	return out
 }
 
-var rumors = []string{
-	"They say the old lab hides a lever behind every wall.",
-	"A hermit in the caves trades gems for gold.",
-	"Never answer a voice in the dark without the password.",
-	"The guardian sleeps until someone pulls the lever.",
+// Rumors are what the barkeep tells, from maps/rumors.txt (one per line).
+var Rumors = []string{"The barkeep has nothing to say."}
+
+func LoadRumors(r io.Reader) {
+	var out []string
+	for sc := bufio.NewScanner(r); sc.Scan(); {
+		if l := strings.TrimSpace(sc.Text()); l != "" && l[0] != '#' {
+			out = append(out, l)
+		}
+	}
+	if len(out) > 0 {
+		Rumors = out
+	}
 }
 
 func tavern(p *party.Party) []Offer {
 	return []Offer{
 		{"bag", "Buy 10 food", 5, func() string { p.Food += 10; return "Your packs are full of bread." }},
 		{"potion", "Round of ale for the party", 2, func() string {
-			return "The barkeep leans in: \"" + rumors[rand.Intn(len(rumors))] + "\""
+			return "The barkeep leans in: \"" + Rumors[rand.Intn(len(Rumors))] + "\""
 		}},
 		{"bag", "Rest the night", 10, func() string {
 			for _, c := range p.Chars {

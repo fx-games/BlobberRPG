@@ -57,7 +57,10 @@ type Item struct {
 // Catalog holds the item templates scripts can name.
 var Catalog = map[string]Item{
 	"helmet":    {Kind: Armor, Slot: Helmet, Icon: "helmet", AC: 1, Value: 30},
+	"leather":   {Title: "Leather Armor", Kind: Armor, Slot: Body, Icon: "leather", AC: 2, Value: 40},
 	"chainmail": {Kind: Armor, Slot: Body, Icon: "armor", AC: 4, Value: 120},
+	"plate":     {Title: "Plate Armor", Kind: Armor, Slot: Body, Icon: "plate", AC: 7, Value: 400},
+	"cloak":     {Kind: Accessory, Slot: Robe, Icon: "robe", AC: 2, Value: 60},
 	"boots":     {Kind: Armor, Slot: Shoes, Icon: "boots", AC: 1, Value: 15},
 	"robe":      {Kind: Accessory, Slot: Robe, Icon: "robe", AC: 1, Value: 25},
 	"ring":      {Kind: Accessory, Slot: RingL, Icon: "ring", AC: 1, Value: 90},

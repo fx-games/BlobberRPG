@@ -142,7 +142,9 @@ func (c *console) killed(m blobber.Monster) {
 			ch.Exp += exp
 		}
 	}
-	blobber.Message(fmt.Sprintf("The %s dies. +%d exp", m.Name, exp))
+	gold := roll(exp + 1) // ponytail: gold only, half the exp on average; a loot column when items should drop
+	c.Gold += gold
+	blobber.Message(fmt.Sprintf("The %s dies. +%d exp, %d gold", m.Name, exp, gold))
 }
 
 // tick is one party turn: a minute passes.
