@@ -24,7 +24,7 @@ var helpKeys = [2][]struct {
 }, {
 	{"Party", [][2]string{{"F1 - F6", "pick a character"}, {"", "in menus and shops"}}},
 	{"Windows", [][2]string{{"Enter", "choose, continue"}, {"Up  Down", "select"}, {"Y  N", "yes, no"}, {"Esc", "close"}, {"Tab", "next character"}}},
-	{"Debug", [][2]string{{"P", "party sheet"}, {"F12", "texture atlas"}}},
+	{"Debug", [][2]string{{"P", "party sheet"}, {"F12", "texture atlas"}, {"K", "kill monsters ahead"}, {"N", "spawn a monster"}}},
 }}
 
 func (h *HelpScreen) Update() bool {

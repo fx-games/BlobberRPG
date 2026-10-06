@@ -115,6 +115,9 @@ func Frame(dst *ebiten.Image, d image.Rectangle) { nine(dst, rc(0, 0, 96, 96), 3
 // DarkFrame is the plain dark knotwork frame, for panels inside windows and the HUD.
 func DarkFrame(dst *ebiten.Image, d image.Rectangle) { nine(dst, rc(210, 18, 60, 60), 14, d) }
 
+// GoldFrame is the gold twin of DarkFrame (the big gold knotwork panel), for highlighting.
+func GoldFrame(dst *ebiten.Image, d image.Rectangle) { nine(dst, rc(2, 2, 92, 92), 16, d) }
+
 // Parchment is the scroll paper used for signs and cutscenes; text on it is ink coloured.
 func Parchment(dst *ebiten.Image, d image.Rectangle) { nine(dst, rc(96, 0, 96, 96), 16, d) }
 

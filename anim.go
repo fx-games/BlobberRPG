@@ -13,7 +13,7 @@ import (
 
 // PxPerTile is every painted monster's pixel density: Scaled resamples to it, so a small monster
 // and a giant look equally sharp, and how big one stands comes only from its size.
-const PxPerTile = 256
+const PxPerTile = 1024
 
 // Sheet is a monster's pictures: an idle pose, plus attack and hurt poses when it has them.
 // Size is how tall it stands in tiles (0 = 0.6). A sheet from Scaled is drawn at PxPerTile instead,
@@ -26,7 +26,8 @@ type Sheet struct {
 }
 
 // Scaled returns the sheet resampled so its tallest pose stands size tiles tall at PxPerTile:
-// all poses are trimmed to one shared box (transparent margins go) and scaled by one factor.
+// all poses, aligned at their bottom centre, are trimmed to one shared box (transparent margins go)
+// and scaled by one factor.
 func (s *Sheet) Scaled(size float64) *Sheet {
 	out := *s
 	out.Size = size
@@ -36,18 +37,23 @@ func (s *Sheet) Scaled(size float64) *Sheet {
 	if size == 0 {
 		size = 0.6
 	}
+	// Poses may differ in canvas size: they line up at their bottom centre (feet on the floor),
+	// and one box around all of them is cut from each.
+	at := func(img image.Image) image.Point { b := img.Bounds(); return image.Pt(b.Min.X+b.Dx()/2, b.Max.Y) }
 	var box image.Rectangle
 	for _, img := range s.src {
 		if img != nil {
-			box = box.Union(opaqueBounds(img))
+			box = box.Union(opaqueBounds(img).Sub(at(img)))
 		}
 	}
 	f := size * PxPerTile / float64(box.Dy())
 	w, h := max(1, int(float64(box.Dx())*f+0.5)), max(1, int(float64(box.Dy())*f+0.5))
 	for i, dst := range []**ebiten.Image{&out.Idle, &out.Attack, &out.Hurt} {
-		if s.src[i] != nil {
+		if img := s.src[i]; img != nil {
+			pad := image.NewRGBA(image.Rect(0, 0, box.Dx(), box.Dy())) // the pose placed in the shared box
+			draw.Draw(pad, pad.Bounds(), img, box.Min.Add(at(img)), draw.Src)
 			rgba := image.NewRGBA(image.Rect(0, 0, w, h))
-			draw.CatmullRom.Scale(rgba, rgba.Bounds(), s.src[i], box, draw.Src, nil)
+			draw.CatmullRom.Scale(rgba, rgba.Bounds(), pad, pad.Bounds(), draw.Src, nil)
 			*dst = ebiten.NewImageFromImage(rgba)
 		}
 	}

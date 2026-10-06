@@ -10,14 +10,13 @@ import (
 	"blobber/sprites"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
-	hitFrames      = 70                       // how long a damage icon stays on a portrait
-	portraitX, pY0 = 8, 8                     // just inside the frame's 8 px border
-	frameH         = pY0 + PortraitSize + pY0 // the frame holds only the portrait
-	barY           = frameH + 1               // HP and SP bars below it, as wide as the frame
+	hitFrames      = 70                   // how long a damage icon stays on a portrait
+	portraitX, pY0 = 8, 8                 // just inside the frame's 8 px border
+	frameH         = 8 + PortraitSize + 8 // the frame holds only the portrait
+	barY           = frameH + 1           // HP and SP bars below it, as wide as the frame
 	cardW, cardH   = PortraitSize + 2*portraitX, barY + 2*11
 	cardGap        = 2 // between columns
 	rowGap         = 8 // between a card's bars and the next portrait
@@ -40,7 +39,12 @@ var Active *party.Character
 
 // Hit shows a damage icon of the given kind over character who's (1-based) portrait.
 // It matches party.Party.OnHit.
-func Hit(who, n int, kind string) { hits[who-1] = hitMark{kind, n, frameNo} }
+func Hit(who, n int, kind string) {
+	hits[who-1] = hitMark{kind, n, frameNo}
+	if kind == "physical" {
+		Bleed(who-1, n)
+	}
+}
 
 // card is character i's rectangle on screen, in device pixels, for a party of n: a column at the
 // right edge below the minimap, two columns when one does not fit, then shrunk until they do.
@@ -93,12 +97,17 @@ func DrawParty(screen *ebiten.Image, p *party.Party) {
 		op.GeoM.Translate(float64(r.Min.X), float64(r.Min.Y))
 		screen.DrawImage(d, op)
 	}
+	drawSplats(screen, func(i int) (float64, float64, float64) {
+		r := card(i, len(p.Chars))
+		return float64(r.Min.X + (portraitX+PortraitSize/2)*k), float64(r.Min.Y + (pY0+PortraitSize/2)*k), float64(k)
+	})
 }
 
 func drawCard(d *ebiten.Image, i int, c *party.Character) {
-	DarkFrame(d, rc(0, 0, cardW, frameH))
 	if c == Active && blobber.Fighting() {
-		vector.StrokeRect(d, 1.5, 1.5, cardW-3, frameH-3, 3, gold, false)
+		GoldFrame(d, rc(0, 0, cardW, frameH))
+	} else {
+		DarkFrame(d, rc(0, 0, cardW, frameH))
 	}
 	img := Portrait(c)
 	op := &ebiten.DrawImageOptions{}

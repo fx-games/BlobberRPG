@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
 	"math/rand"
 	"slices"
 	"sort"
@@ -273,6 +275,7 @@ func (c *console) swing(ch *party.Character, i int, m blobber.Monster) {
 	dmg += ch.Num["might"] / 10
 	blobber.Message(fmt.Sprintf("%s hits the %s for %d", ch.Name, m.Name, dmg))
 	c.PlaySound("hit")
+	ui.Bleed(-1, dmg)
 	blobber.HitMelee(i, dmg)
 }
 
@@ -345,4 +348,65 @@ func (c *console) installCombat() {
 	blobber.OnMelee = c.melee
 	blobber.OnKill = c.killed
 	blobber.OnTurn = c.tick
+}
+
+// step is the cell offset of each facing (0=N 1=E 2=S 3=W).
+var step = [4][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
+
+// killAhead is a debug key (K): every monster in the party's cell and in the cells straight ahead,
+// up to the next wall, dies at once (with the usual experience and loot).
+func killAhead() {
+	x, y, dir := blobber.Pos()
+	n := 0
+	for {
+		for blobber.HitMonster(x, y, 1<<30) {
+			n++
+		}
+		x, y = x+step[dir][0], y+step[dir][1]
+		if c := blobber.Cell(x, y); c != '.' && c != blobber.Door {
+			break
+		}
+	}
+	blobber.Message(fmt.Sprintf("Debug: killed %d monster(s).", n))
+}
+
+// complete reports whether monster id has usable stats and all three painted poses.
+func complete(id string) bool {
+	k := kinds[id]
+	if k.HP <= 0 || k.AC < 0 || k.Dmg <= 0 || k.Exp < 0 || k.Spd <= 0 || k.Size <= 0 {
+		return false
+	}
+	for _, pose := range []string{"idle", "attack", "hurt"} {
+		if _, err := fs.Stat(monsters, "assets/monsters/"+k.Sprite+"/"+pose+".png"); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// spawnMenu is a debug key (N): pick a complete monster of monsters.txt (type its number) and it appears
+// 3 cells ahead, or at the farthest open cell before a wall.
+func (c *console) spawnMenu() {
+	ids := slices.DeleteFunc(slices.Sorted(maps.Keys(kinds)), func(id string) bool { return !complete(id) })
+	lines := []string{"SPAWN MONSTER", ""}
+	for i, id := range ids {
+		lines = append(lines, fmt.Sprintf("  %2d  %s", i+1, id))
+	}
+	blobber.ShowPrompt(append(lines, "", "Type a number, Enter spawns, Esc cancels"), true, func(a string) {
+		i, err := strconv.Atoi(strings.TrimSpace(a))
+		if err != nil || i < 1 || i > len(ids) {
+			return
+		}
+		x, y, dir := blobber.Pos()
+		for range 3 {
+			nx, ny := x+step[dir][0], y+step[dir][1]
+			if c := blobber.Cell(nx, ny); c != '.' && c != blobber.Door {
+				break
+			}
+			x, y = nx, ny
+		}
+		if c.spawn(ids[i-1], x, y, -1) == nil {
+			blobber.Message(fmt.Sprintf("Debug: spawned %s at %d,%d.", ids[i-1], x, y))
+		}
+	})
 }
