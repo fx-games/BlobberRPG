@@ -77,6 +77,9 @@ type Overlay interface {
 
 var Modal Overlay
 
+// Help, if set, is shown over everything while "?" is toggled on; Update returning false closes it.
+var Help Overlay
+
 // Keys binds extra keys to host actions; checked while no prompt or modal is open.
 var Keys = map[ebiten.Key]func(){}
 
@@ -111,6 +114,12 @@ func (p *Prompt) update() {
 			done(p.input)
 		}
 		return
+	}
+	for i := range 9 { // F1-F9 pick a character, like digits
+		if inpututil.IsKeyJustPressed(ebiten.KeyF1 + ebiten.Key(i)) {
+			done(string(rune('1' + i)))
+			return
+		}
 	}
 	for _, r := range chars {
 		if r >= '0' && r <= '9' || r == 'y' || r == 'n' {
@@ -187,7 +196,22 @@ func ClearSign() { sign.tex = nil }
 
 // Map cells: '.' is floor, anything else is a wall whose character picks the material (see mats).
 func wall(x, y int) bool {
-	return y < 0 || y >= len(level) || x < 0 || x >= len(level[y]) || level[y][x] != '.'
+	ch := Cell(x, y)
+	return ch != '.' && ch != Door
+}
+
+// Door is the map character of an open doorway: passable, drawn as a door across the cell.
+// Locked is a door that is still a wall; scripts open it with `altercell X Y D`.
+const Door, Locked = 'D', 'L'
+
+// WallChars lists every map character the renderer knows a texture for, for editor palettes.
+func WallChars() []byte {
+	var out []byte
+	for ch := range mats {
+		out = append(out, ch)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // material returns the front/right/left textures of the wall at (x, y); unknown chars use stone.
@@ -302,6 +326,13 @@ func genTextures() {
 			genStone(64, 32, true, c[0], c[1], -1, -0.4), // wall on our right, face points left
 		}
 	}
+	wood := MatColors['W']
+	door := &[3]*ebiten.Image{ // vertical planks
+		genStone(16, 128, false, wood[0], wood[1], 0.3, -1),
+		genStone(16, 128, false, wood[0], wood[1], 1, -0.4),
+		genStone(16, 128, false, wood[0], wood[1], -1, -0.4),
+	}
+	mats[Door], mats[Locked] = door, door
 	texFront, texRight, texLeft = mats['#'][0], mats['#'][1], mats['#'][2]
 	texFloor = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
 	texCeil = genStone(64, 64, false, [3]float64{70, 66, 72}, [3]float64{40, 38, 42}, 0.4, 1)
@@ -373,7 +404,7 @@ func updateEnts(t float64) {
 			e.x, e.z = e.x+e.vx/60, e.z+e.vz/60
 			e.light = 1.2 + 0.3*math.Sin(t*25+e.phase)
 			cx, cz := int(math.Floor(e.x)), int(math.Floor(e.z))
-			if wall(cx, cz) || hitActor(cx, cz, e.dmg) {
+			if wall(cx, cz) || HitMonster(cx, cz, e.dmg) {
 				continue
 			}
 		case Lantern: // ponytail: lanterns drift around home; give ent a path when a map needs patrols
@@ -397,27 +428,51 @@ var lightLeft float64
 // Light brightens the party's light for secs seconds.
 func Light(secs float64) { lightLeft = secs }
 
-// OnKill, if set, is called when a bolt kills a monster.
-var OnKill func(x, y int)
+// OnKill, if set, is called when a monster dies.
+var OnKill func(m Monster)
 
-// hitActor deals dmg to the first monster in cell (x, y); it reports whether one was there.
-func hitActor(x, y, dmg int) bool {
-	for i, a := range actors {
-		if a.x == x && a.y == y {
-			if a.hp -= dmg; a.hp <= 0 {
-				actors = append(actors[:i], actors[i+1:]...)
-				if OnKill != nil {
-					OnKill(x, y)
-				}
-			}
-			return true
+// HitMonster deals dmg to the first monster in cell (x, y); it reports whether one was there.
+func HitMonster(x, y, dmg int) bool {
+	a := actorAt(x, y)
+	if a == nil {
+		return false
+	}
+	if a.hp -= dmg; a.hp > 0 {
+		a.play("hurt")
+		return true
+	}
+	if OnKill != nil {
+		OnKill(a.state())
+	}
+	if a.sheet != nil && a.sheet.Anims["death"] != nil { // plays out, then updateActors drops it
+		a.dying = true
+		a.play("death")
+		return true
+	}
+	for i, b := range actors {
+		if b == a {
+			actors = append(actors[:i], actors[i+1:]...)
 		}
 	}
-	return false
+	return true
 }
 
-// shoot launches a debug fireball (Space).
-func (g *Game) shoot() { Bolt(5, 6, 1, 0.3, 0.1) }
+// MonsterAt names the monster standing in cell (x, y), or "".
+func MonsterAt(x, y int) string {
+	if a := actorAt(x, y); a != nil {
+		return a.name
+	}
+	return ""
+}
+
+func actorAt(x, y int) *Actor {
+	for _, a := range actors {
+		if a.x == x && a.y == y && !a.dying {
+			return a
+		}
+	}
+	return nil
+}
 
 // Bolt launches a glowing projectile coloured r,g,b from the party in the facing direction,
 // flying speed cells/sec, dealing dmg to the first monster it reaches.
@@ -434,16 +489,86 @@ func Bolt(dmg int, speed, r, g, b float64) {
 
 // ---------- actors ----------
 
-// Actor is a monster: a lit billboard standing on the floor of a cell, wandering at random.
+// Actor is a monster: a lit billboard standing on the floor of a cell. It acts once per party turn.
 type Actor struct {
-	x, y              int     // cell
-	fx, fz, tx, tz, t float64 // tween from/to and progress
-	wait              float64 // seconds until next step
-	tex               *ebiten.Image
+	name              string
+	x, y              int           // cell
+	fx, fz, tx, tz, t float64       // tween from/to and progress
+	tex               *ebiten.Image // still picture, when there is no sheet
 	hp                int
+	// animation
+	sheet *Sheet
+	anim  *Anim
+	frame int
+	ft    float64 // time into the current frame
+	dying bool    // playing death; gone when it ends
+}
+
+// play starts the named row, if the sheet has it; non-looping rows fall back to idle when done.
+func (a *Actor) play(name string) {
+	if a.sheet == nil || a.sheet.Anims[name] == nil {
+		return
+	}
+	a.anim, a.frame, a.ft = a.sheet.Anims[name], 0, 0
+}
+
+// img is the picture to draw this frame.
+func (a *Actor) img() *ebiten.Image {
+	if a.anim != nil {
+		return a.anim.Frames[a.frame]
+	}
+	return a.tex
+}
+
+// animate advances the frame clock; it reports true when a dying actor's death animation is over.
+func (a *Actor) animate(dt float64) bool {
+	if a.anim == nil {
+		return false
+	}
+	a.ft += dt
+	for a.ft >= a.anim.Durations[a.frame] {
+		a.ft -= a.anim.Durations[a.frame]
+		if a.frame++; a.frame >= len(a.anim.Frames) {
+			if a.dying {
+				return true
+			}
+			if a.anim.Loop {
+				a.frame = 0
+			} else {
+				a.play("idle")
+			}
+		}
+	}
+	return false
 }
 
 var actors []*Actor
+
+// Monster is the saved state of one monster: its table name, cell and hit points left.
+type Monster struct {
+	Name string
+	X, Y int
+	HP   int
+}
+
+func (a *Actor) state() Monster { return Monster{a.name, a.x, a.y, a.hp} }
+
+// Monsters lists the population's living monsters, for saving.
+func (p *Population) Monsters() []Monster {
+	var out []Monster
+	for _, a := range p.actors {
+		if !a.dying {
+			out = append(out, a.state())
+		}
+	}
+	return out
+}
+
+// Live is the current map's population (not swapped out).
+func Live() *Population { return &Population{actors, ents} }
+
+// ClearMonsters removes every monster from the current map; decorations stay.
+func ClearMonsters() { actors = nil }
 
 // Population is the set of monsters and decorations of one map.
 type Population struct {
@@ -465,9 +590,21 @@ func SwapPopulation(next *Population) *Population {
 	return prev
 }
 
-// SpawnActor places a monster drawn with img (e.g. a decoded PNG) at cell (x, y).
-func SpawnActor(img image.Image, x, y int) {
-	a := &Actor{x: x, y: y, t: 1, wait: rng.Float64() * 2, tex: ebiten.NewImageFromImage(img), hp: 10}
+// SpawnActor places monster name, drawn with img (e.g. a decoded PNG), at cell (x, y) with hp hit points.
+func SpawnActor(name string, img image.Image, x, y, hp int) {
+	spawnActor(&Actor{name: name, x: x, y: y, t: 1, tex: ebiten.NewImageFromImage(img), hp: hp})
+}
+
+// SpawnSheet places an animated monster.
+func SpawnSheet(name string, s *Sheet, x, y, hp int) {
+	a := &Actor{name: name, x: x, y: y, t: 1, sheet: s, hp: hp}
+	a.play("idle")
+	a.ft = rng.Float64() * a.anim.Durations[0] // desynchronise identical monsters
+	spawnActor(a)
+}
+
+func spawnActor(a *Actor) {
+	x, y := a.x, a.y
 	a.tx, a.tz = float64(x)+0.5, float64(y)+0.5
 	a.fx, a.fz = a.tx, a.tz
 	actors = append(actors, a)
@@ -478,25 +615,96 @@ func (a *Actor) pos() (float64, float64) {
 	return a.fx + (a.tx-a.fx)*e, a.fz + (a.tz-a.fz)*e
 }
 
-// ponytail: pure random walk, no player avoidance beyond "not into the player's cell"; add chase AI when combat exists.
+// updateActors only advances movement tweens and animations; decisions happen in monstersTurn.
 func (g *Game) updateActors(dt float64) {
+	live := actors[:0]
 	for _, a := range actors {
 		if a.t < 1 {
-			a.t = math.Min(1, a.t+dt/0.6)
-			continue
+			a.t = math.Min(1, a.t+dt/0.3)
 		}
-		if a.wait -= dt; a.wait > 0 {
-			continue
+		if !a.animate(dt) {
+			live = append(live, a)
 		}
-		a.wait = 0.5 + rng.Float64()*2
-		d := dirs[rng.Intn(4)]
-		nx, ny := a.x+d[0], a.y+d[1]
-		if wall(nx, ny) || (nx == g.x && ny == g.y) {
-			continue
-		}
-		a.fx, a.fz, a.x, a.y, a.t = a.tx, a.tz, nx, ny, 0
-		a.tx, a.tz = float64(nx)+0.5, float64(ny)+0.5
 	}
+	actors = live
+}
+
+// Turn hooks. OnTurn runs after every party action that costs a turn (step, attack, wait), before the
+// monsters move. OnAttack is a monster adjacent to the party striking it. OnBump is the party walking
+// into a monster: the host resolves the party's attack (HitMonster) and the step is not taken.
+var (
+	OnTurn   func()
+	OnAttack func(m Monster)
+	OnBump   func(m Monster)
+)
+
+// Sight is how far (in steps) a monster notices the party and chases it.
+var Sight = 8
+
+// EndTurn passes a turn from outside the engine, e.g. after a spell is cast.
+func EndTurn() { game.endTurn() }
+
+// endTurn passes a turn: hosts tick the clock, then every monster acts.
+func (g *Game) endTurn() {
+	if OnTurn != nil {
+		OnTurn()
+	}
+	g.monstersTurn()
+}
+
+// monstersTurn: adjacent monsters attack, near ones step towards the party, the rest wander.
+// ponytail: greedy chase, no pathfinding; monsters stall behind a corner. BFS when that shows.
+func (g *Game) monstersTurn() {
+	for _, a := range actors {
+		if a.dying {
+			continue
+		}
+		dx, dy := g.x-a.x, g.y-a.y
+		dist := abs(dx) + abs(dy)
+		var try [][2]int
+		switch {
+		case dist == 1:
+			a.play("attack")
+			if OnAttack != nil {
+				OnAttack(a.state())
+			}
+			continue
+		case dist <= Sight:
+			sx, sy := sgn(dx), sgn(dy)
+			try = [][2]int{{sx, 0}, {0, sy}}
+			if abs(dy) > abs(dx) {
+				try[0], try[1] = try[1], try[0]
+			}
+		default:
+			try = [][2]int{dirs[rng.Intn(4)]}
+		}
+		for _, d := range try {
+			nx, ny := a.x+d[0], a.y+d[1]
+			if d == [2]int{} || wall(nx, ny) || (nx == g.x && ny == g.y) || actorAt(nx, ny) != nil {
+				continue
+			}
+			a.fx, a.fz, a.x, a.y, a.t = a.tx, a.tz, nx, ny, 0
+			a.tx, a.tz = float64(nx)+0.5, float64(ny)+0.5
+			break
+		}
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func sgn(n int) int {
+	switch {
+	case n < 0:
+		return -1
+	case n > 0:
+		return 1
+	}
+	return 0
 }
 
 // ---------- game state ----------
@@ -510,12 +718,12 @@ type Game struct {
 	queued                 ebiten.Key
 	time                   float64
 	// settings
-	dither, smooth, menu, atlasView bool
-	debug                           bool
-	torch                           float64
-	sel                             int
-	scene                           *ebiten.Image
-	shader, texShader               *ebiten.Shader
+	dither, smooth, menu, atlasView, help bool
+	debug                                 bool
+	torch                                 float64
+	sel                                   int
+	scene                                 *ebiten.Image
+	shader, texShader                     *ebiten.Shader
 }
 
 var dirs = [4][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
@@ -551,8 +759,17 @@ func (g *Game) act(k ebiten.Key) {
 	}
 	f, r := dirs[g.dir], dirs[(g.dir+1)%4]
 	step := func(dx, dy int, sway float64) {
-		if !wall(g.x+dx, g.y+dy) {
-			g.startMove(g.x+dx, g.y+dy, g.dir, sway)
+		nx, ny := g.x+dx, g.y+dy
+		switch a := actorAt(nx, ny); {
+		case wall(nx, ny):
+		case a != nil: // attack instead of stepping
+			if OnBump != nil {
+				OnBump(a.state())
+			}
+			g.endTurn()
+		default:
+			g.startMove(nx, ny, g.dir, sway)
+			g.endTurn()
 		}
 	}
 	switch k {
@@ -575,11 +792,21 @@ func (g *Game) Update() error {
 	g.time += 1.0 / 60
 	updateEnts(g.time)
 	g.updateActors(1.0 / 60)
-	if inpututil.IsKeyJustPressed(ebiten.KeyF1) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
 		g.atlasView = !g.atlasView
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyP) {
 		g.debug = !g.debug
+	}
+	// "?" toggles the help screen over everything, except while typing an answer
+	if Help != nil && (prompt == nil || !prompt.Text) && strings.ContainsRune(string(ebiten.AppendInputChars(nil)), '?') {
+		g.help = !g.help
+		return nil
+	}
+	if g.help {
+		g.help = Help.Update()
+		g.tween()
+		return nil
 	}
 	if prompt != nil {
 		prompt.update()
@@ -606,8 +833,8 @@ func (g *Game) Update() error {
 			return ebiten.Termination
 		}
 	} else {
-		if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-			g.shoot()
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) && !g.moving { // wait a turn
+			g.endTurn()
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyF) && !g.moving && OnUse != nil {
 			OnUse(g.x, g.y, g.dir)
@@ -866,6 +1093,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		x0, z0, x1, z1 := float64(cx), float64(cy), float64(cx+1), float64(cy+1)
 		q(vert{x0, 0.5, z0, 0, 0, 0, 0, 0}, vert{x1, 0.5, z0, 1, 0, 0, 0, 0}, vert{x1, 0.5, z1, 1, 1, 0, 0, 0}, vert{x0, 0.5, z1, 0, 1, 0, 0, 0}, texFloor, 3)
 		q(vert{x0, -0.5, z0, 0, 0, 0, 0, 0}, vert{x1, -0.5, z0, 1, 0, 0, 0, 0}, vert{x1, -0.5, z1, 1, 1, 0, 0, 0}, vert{x0, -0.5, z1, 0, 1, 0, 0, 0}, texCeil, 3)
+		if Cell(cx, cy) == Door { // a door quad across the cell, square to the corridor it sits in
+			zm, xm := (z0+z1)/2, (x0+x1)/2
+			if wall(cx-1, cy) && wall(cx+1, cy) {
+				q(vert{x0, -0.5, zm, 0, 0, 0, 0, 0}, vert{x1, -0.5, zm, 1, 0, 0, 0, 0}, vert{x1, 0.5, zm, 1, 1, 0, 0, 0}, vert{x0, 0.5, zm, 0, 1, 0, 0, 0}, mats[Door][0], 3)
+			} else {
+				q(vert{xm, -0.5, z0, 0, 0, 0, 0, 0}, vert{xm, -0.5, z1, 1, 0, 0, 0, 0}, vert{xm, 0.5, z1, 1, 1, 0, 0, 0}, vert{xm, 0.5, z0, 0, 1, 0, 0, 0}, mats[Door][0], 3)
+			}
+		}
 		// wall faces on the four sides of this floor cell, textured by how they face the camera
 		type side struct{ ax, az, bx, bz, nx, nz float64 }
 		for i, s := range []side{{x0, z0, x1, z0, 0, 1}, {x1, z0, x1, z1, -1, 0}, {x1, z1, x0, z1, 0, -1}, {x0, z1, x0, z0, 1, 0}} {
@@ -909,12 +1144,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			continue
 		}
 		ax, az = ax+c.fwx*eyeBack, az+c.fwz*eyeBack // mirror the eye's offset: monster sits as far behind its cell center as we sit behind ours
-		b := a.tex.Bounds()
+		img := a.img()
+		b := img.Bounds()
 		k := 0.6 / math.Max(float64(b.Dx()), float64(b.Dy())) // longest side = 0.6 tiles
 		wid, hgt := k*float64(b.Dx()), k*float64(b.Dy())
 		hx, hz := c.rtx*wid/2, c.rtz*wid/2
 		q(vert{ax - hx, 0.5 - hgt, az - hz, 0, 0, 0, 0, 0}, vert{ax + hx, 0.5 - hgt, az + hz, 1, 0, 0, 0, 0},
-			vert{ax + hx, 0.5, az + hz, 1, 1, 0, 0, 0}, vert{ax - hx, 0.5, az - hz, 0, 1, 0, 0, 0}, a.tex, 1)
+			vert{ax + hx, 0.5, az + hz, 1, 1, 0, 0, 0}, vert{ax - hx, 0.5, az - hz, 0, 1, 0, 0, 0}, img, 1)
 	}
 	if sign.tex != nil {
 		d := dirs[sign.dir]
@@ -943,9 +1179,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawRectShader(W, H, g.shader, op)
 	}
 	g.drawMinimap(screen, c)
-	font.Print(screen, fmt.Sprintf("%.0f fps  pos %d,%d facing %c   WASD move  Q/E turn  Space fire  F search/take  I inventory  C cast  P party  Esc menu  click: sides turn, middle walk  Enter: menu  F1: atlas", ebiten.ActualFPS(), g.x, g.y, "NESW"[g.dir]), 4, 0)
+	font.Print(screen, fmt.Sprintf("%.0f fps  pos %d,%d facing %c   ? help", ebiten.ActualFPS(), g.x, g.y, "NESW"[g.dir]), 4, 0)
 	if HUD != nil {
 		HUD(screen)
+	}
+	if g.time < msgUntil {
+		font.Print(screen, msg, (W-font.Width(msg))/2, 16)
 	}
 	if g.menu {
 		g.drawMenu(screen)
@@ -955,6 +1194,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	if Modal != nil {
 		Modal.Draw(screen)
+	}
+	if g.help {
+		Help.Draw(screen)
 	}
 	if g.debug && DebugLines != nil && Window != nil {
 		Window(screen, "PARTY", DebugLines(), -1, false)
@@ -1139,6 +1381,22 @@ func Cell(x, y int) byte {
 
 // Pos returns the party's cell and facing.
 func Pos() (x, y, dir int) { return game.x, game.y, game.dir }
+
+// Face turns the party to dir without a tween.
+func Face(dir int) {
+	g := game
+	g.dir = dir
+	g.ta = float64(dir) * math.Pi / 2
+	g.fa = g.ta
+}
+
+// Message shows a line of text at the bottom of the view for a few seconds (combat and status text).
+func Message(s string) { msg, msgUntil = s, game.time+3 }
+
+var (
+	msg      string
+	msgUntil float64
+)
 
 func Run(lvl []string, x, y, dir int) error {
 	genTextures()

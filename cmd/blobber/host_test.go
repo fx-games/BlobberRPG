@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,8 +48,8 @@ func TestLever(t *testing.T) {
 	h := newTestHost(t, "cave", 1, 5)
 	lever, pulled := h.worlds["cave"].objs["lever"], h.worlds["cave"].objs["lever_pulled"]
 	use(h, 1, 5)
-	if it := h.FindItem("dagger"); it == nil || it.Bonus != 2 {
-		t.Fatal("no dagger +2")
+	if it := h.FindItem("iron_dagger"); it == nil || it.Bonus != 2 {
+		t.Fatal("no iron dagger +2")
 	}
 	if pulled.X != 1 || pulled.Y != 5 || lever.X != -1 {
 		t.Fatal("lever sprites not swapped")
@@ -163,5 +164,49 @@ func TestNPCRegistry(t *testing.T) {
 				t.Errorf("%s: npc %q missing from maps/npcs.txt or its portrait", fn, m[1])
 			}
 		}
+	}
+}
+
+// A bump kills a wounded rat with a sure roll; the monster's turn wounds the party; a save round-trips all of it.
+func TestCombatAndSave(t *testing.T) {
+	h := newTestHost(t, "demo", 2, 1)
+	h.installCombat()
+	defer func() { blobber.OnBump, blobber.OnAttack, blobber.OnKill, blobber.OnTurn = nil, nil, nil, nil }()
+	roll = func(n int) int { return n - 1 } // always the top roll
+	defer func() { roll = rand.Intn }()
+	kinds["rat"] = kind{"001", 6, 2, 3, 5}
+	blobber.ClearMonsters()
+	h.spawn("rat", 3, 1, 2)
+	h.AddItem(party.NewItem("steel_sword", 0))
+	h.Equip(h.Chars[0], h.FindItem("steel_sword"))
+	h.attack(blobber.Monster{Name: "rat", X: 3, Y: 1, HP: 2})
+	if blobber.MonsterAt(3, 1) != "" || h.Chars[0].Exp != 5 {
+		t.Fatalf("rat alive=%q exp=%d", blobber.MonsterAt(3, 1), h.Chars[0].Exp)
+	}
+	h.spawn("rat", 3, 1, -1)
+	h.defend(blobber.Monster{Name: "rat", X: 3, Y: 1})
+	if h.Chars[0].HP == 30 && h.Chars[1].HP == 12 {
+		t.Fatal("nobody hurt")
+	}
+	h.tick()
+	saveFile = filepath.Join(t.TempDir(), "s.sav")
+	h.Flags["quest"] = true
+	if err := h.saveGame(); err != nil {
+		t.Fatal(err)
+	}
+	hp0, hp1, min := h.Chars[0].HP, h.Chars[1].HP, h.Minutes
+	h.Chars[0].HP, h.Chars[1].HP = 1, 1
+	blobber.ClearMonsters()
+	if err := h.loadGame(); err != nil {
+		t.Fatal(err)
+	}
+	if h.Chars[0].HP != hp0 || h.Chars[1].HP != hp1 || h.Minutes != min || !h.Flags["quest"] || h.m != "demo" {
+		t.Fatalf("party not restored: %v", h.Summary())
+	}
+	if blobber.MonsterAt(3, 1) != "rat" || h.Chars[0].Equipped[party.RightHand] == nil {
+		t.Fatal("world or equipment not restored")
+	}
+	if x, y, _ := blobber.Pos(); x != 2 || y != 1 {
+		t.Fatalf("pos %d,%d", x, y)
 	}
 }

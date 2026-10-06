@@ -1,0 +1,3 @@
+# World file: the campaign's name and where a new game begins.
+title Blobber Demo
+start demo 1 1 e

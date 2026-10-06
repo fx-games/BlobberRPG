@@ -12,12 +12,12 @@
 #.####.#.#...#.#............#
 #......#...#...##############
 #############################
-monster 001 20 3
-monster 003 22 8
-monster 007 18 10
-monster 012 24 5
-monster 020 3 1
-monster 035 10 7
+monster ice_giant 20 3
+monster ice_giant 22 8
+monster ice_giant 18 10
+monster ice_giant 24 5
+monster ice_giant 3 1
+monster ice_giant 10 7
 deco grass 10 3
 deco grass 11 4
 deco grass 12 3
@@ -38,4 +38,4 @@ deco firefly 18 4
 deco firefly 25 9
 deco firefly 24 3
 item helmet 5 1
-item shield 13 7
+item iron_shield 13 7

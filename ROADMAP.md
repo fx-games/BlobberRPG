@@ -1,0 +1,170 @@
+# Roadmap: from demo to a complete Might & Magic 3-5 style engine
+
+Goal: a content creator writes `.map` + `.evt` files, data tables and assets, and ships a full game
+with a story, quests and an ending. Content tooling stays at the level of the originals (tile events
+with opcodes, fixed monster placement, data tables); the engine side (graphics, movement, UI) may be better.
+
+## Decisions (2026-10-06)
+
+1. **Combat is turn-based, always.** Roguelike rounds: the party takes a turn (step, strafe, attack by walking into a monster, use, cast, wait), then every monster acts. Turning in place is free. There is no real-time mode.
+2. **Dungeons and towns first.** Overworld, terrain and sky only if good assets turn up.
+3. **Our own classes and races**, not the MM3 list. Data tables, curated later.
+4. **Our own spell list**, curated.
+5. **Default party plus character creation at the inn.** Hirelings are a later nice-to-have.
+6. **Desktop and web** are both targets. Saves: file on desktop, browser storage on web.
+7. **Monster animation depends on the sprites found.** Frames are used when a sheet has them.
+8. **Chiptune synth stays** until better sound sources are found.
+9. **The editor must be able to build a complete campaign** (maps, events, world file, data tables).
+
+## What exists today
+
+- Grid renderer: five generated wall materials, floor, ceiling, billboards (objects, monsters, decorations), world signs, torch light, dither, minimap.
+- Movement: step, strafe, turn, tween, mouse/touch, held-key walking.
+- Event VM: the Xeen opcode set (`op-codes.md`), labels, prompts, self-modifying events (in memory only).
+- Party: characters with stats, resistances, awards/skills/conditions/spells flags, slots, shared stacked inventory, weapon catalog with five material tiers, four spells, six shops, NPC dialogs, cutscenes, help screen, HUD portraits, hit markers.
+- Monsters: billboards with a random walk and fixed HP, killed by the debug bolt. No combat.
+- Audio: synthesized effects and loops. Editor: paint walls, edit tile scripts. Desktop and web builds.
+
+## A. Must have for a shippable game
+
+### A1. Save / load (nothing exists)
+
+- [x] Serialize party (characters, inventory, equipped, gold/gems/food/bank, flags, time).
+- [x] Serialize world: position, facing, current map, VM patches, per-map cell changes, moved objects, taken floor items, monster state.
+- [~] One slot (F5 / F9); file on desktop, browser storage on web. Slots and autosave pending.
+- [ ] Load on title screen / menu; quick save & load keys.
+
+### A2. Combat (nothing exists beyond the bolt)
+
+- [~] Monster data table (`maps/monsters.txt`): id, sprite, HP, AC, damage, exp. Pending: speed, attack kinds, resistances, special attacks, loot class, ranged/caster, boss flag.
+- [~] Monster AI: chase within sight, attack when adjacent, wander otherwise. Pending: pathfinding, ranged, flee.
+- [~] Turn-based play everywhere (decision 1): step / bump-attack / wait = one turn, then monsters act. Casting costs a turn. Pending: block, speed.
+- [~] d20 to-hit vs AC with level and accuracy, weapon damage plus might. Pending: criticals, ranged row.
+- [ ] Conditions: poisoned, diseased, asleep, paralyzed, unconscious, dead, stone, eradicated, cursed, weak, drunk; effects on turns and stats; cure sources (spells, temple, time).
+- [~] Experience award and message strip done. Pending: loot drop, scrolling log.
+- [ ] Respawn rule: non-boss monsters return after N days.
+- [~] Party wipe → message, then the last save loads (or the game quits). Pending: a proper screen and title menu.
+
+### A3. Characters
+
+- [~] Class and race tables (`maps/classes.txt`, `maps/races.txt`): HP/SP per level, level cost, stat modifiers. Pending: allowed classes, spell schools.
+- [x] Level-up at the trainer from the class table.
+- [ ] Skills table and effects (direction sense, cartographer, spot secret doors, danger sense, swimmer, mountaineer, pathfinder, linguist, merchant, thievery, …).
+- [ ] Stats actually used in rules (might → damage, speed → initiative, endurance → HP, luck → saves, personality/intellect → SP).
+- [ ] Character sheet screen (stats, resistances, skills, awards, conditions) replacing the debug `P` panel.
+- [~] Inn (`town inn`): create a character by prompts, leave members at the inn, take them along, up to 6. Pending: portrait choice, re-rolls.
+- [ ] Aging, and `age` effects if wanted.
+
+### A4. Spells
+
+- [ ] Full spell table (`spells.txt`): school, level, SP and gem cost, target (self / one / party / one monster / all monsters), power by level, duration.
+- [ ] Target picker for single-target spells.
+- [ ] Timed buffs (bless, heroism, protection from X, power shield, holy bonus, …) and the `*tmp` stats they set.
+- [ ] Utility spells with world effects: light (done), wizard eye, levitate, water walk, jump, teleport, town portal, Lloyd's beacon, time distortion, etherealize, super shelter, day of protection, day of sorcery, awaken, cure *.
+- [ ] Guild membership per town; spells bought by level.
+- [ ] Spellbook with the right lists per class.
+
+### A5. Items
+
+- [ ] Armor families with materials (leather, scale, chain, splint, plate; helmets, shields, boots, cloaks, gauntlets) like weapons.
+- [ ] Enchantment model: material prefix + base + attribute suffix (`of Might`, `of Fire`, elemental damage, stat bonuses) with effects applied when worn.
+- [ ] Item generation by level for loot and chests; treasure tables per monster loot class.
+- [ ] Cursed, unidentified and broken items; identify and repair at the smith.
+- [ ] Usable items in the world (wands with charges, scrolls that cast, quest items).
+- [ ] Carry limit (weight or slots) and gems as a currency in shops.
+
+### A6. World and time
+
+- [~] Game clock: one minute per turn, day rollover. Pending: rest, shop time, day/night.
+- [ ] Rest / camp: heals over time, consumes food, random encounter chance, refused when monsters are near.
+- [~] Doors: `D` is an open doorway drawn as a door, `L` a locked one that scripts open with `altercell X Y D`. Pending: bash, traps, secret doors.
+- [ ] Wall decorations: torches, grates, signs, stairs, cave mouths, town entrances.
+- [ ] Terrain types with rules: water (swimmer / water walk), swamp (poison), lava (damage), desert, snow, road, mountains (mountaineer), forest; movement cost or block.
+- [ ] Outdoor maps: sky backdrop, horizon, day/night tint, distant trees/mountains as blocks or billboards.
+- [ ] Full map screen with explored cells (cartographer skill), map name, coordinates.
+- [ ] World file: list of maps, their names, outdoor/indoor flag, per-map music, start map and position.
+
+### A7. Story, quests, win state
+
+- [ ] Awards / quests screen listing awards and quest items (awards flags exist, no UI).
+- [ ] Opcodes: `win` (victory cutscene, score, credits, back to title), `gameover`, `award` as a first-class text table.
+- [ ] Title screen: new game, load, options, credits.
+- [ ] Intro / ending cutscenes with full-screen art (text-only pages exist).
+- [ ] Game over screen on party death.
+
+### A8. Shops, completed
+
+- [ ] Temple: cure each condition, uncurse items, donate for a blessing.
+- [ ] Smith: repair, identify.
+- [ ] Bank: gems, interest per day.
+- [ ] Tavern: rumors and food prices from a per-town data file, not hardcoded.
+- [ ] Guild: membership + level-gated spells.
+
+### A9. Audio
+
+- [ ] Load real tracks and effects (OGG) by name; keep the synth as fallback.
+- [ ] Per-map music from the world file; combat and boss music; victory, game over, title.
+- [ ] Monster attack / hit / die sounds from the monster table.
+- [ ] Volume options.
+
+## B. Should have (the "better than the originals" part)
+
+- [ ] Gamepad support.
+- [ ] Message log (scrollable history of event and combat text).
+- [ ] Options screen: volume, key bindings, movement speed, dither, fullscreen (partly in the Esc menu).
+- [x] Animated monsters from sprite sheets (idle / attack / hurt / death); see op-codes.md.
+- [ ] Wall texture sets per map (cave, castle, crypt, sewer, …) loaded from PNG, replacing generated stone.
+- [ ] Smooth day/night lighting outdoors; weather is optional.
+- [ ] Quest markers on the map screen for known quest tiles (optional, not in the originals).
+- [ ] Portrait expressions by condition (poisoned, asleep, dead) or at least condition icons on the HUD.
+
+## C. Content tooling
+
+- [~] Editor: monster palette from the asset folder, door cells in the wall palette. Pending: objects, items, decorations.
+- [ ] Editor: world file editing (map list, start, music), NPC registry, cutscene preview.
+- [ ] Data tables as text files in `maps/` or `data/`: monsters, items, armor, spells, classes, races, skills, awards, rumors. Today spells, the item catalog, rumors and the trainer formula are Go code.
+- [ ] Opcode lab kept in sync with new opcodes (`win`, doors, terrain).
+- [ ] A `blobber check` command that lints a campaign: missing sprites, unknown items/monsters/spells, bad jumps, unreachable maps.
+
+## D. Known loose ends in the current code
+
+- Properties `levitate light wizardeye walkonwater` are documented but not stored by the party.
+- Bolt spells fly in real time after the turn passes, so a monster may step out of the way.
+- Rumors, spells, item catalog and level-up costs are compiled in.
+- NPC portraits are recoloured party portraits (see `maps/npcs.txt`).
+
+## E. What you need to provide
+
+All sizes are suggestions matching the current code (128 px textures, 45 px portraits, 16 px icons).
+Everything is PNG with transparency unless noted; audio is OGG.
+
+### Art
+
+| Asset                    | Count                                                                                                           | Spec                                                                         | Notes                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------- |
+| Wall texture sets        | 1 per map theme (cave, castle, crypt, sewer, town, temple, …), 3-6 sets                                         | 128×128, each set: wall front + 1-2 variants, floor, ceiling                 | Currently generated; sets replace them  |
+| Wall features            | doors (closed, open, locked), secret door, grate, torch sconce, sign, stairs up/down, cave mouth, town entrance | 128×128 overlays on a wall                                                   |                                         |
+| Outdoor ground           | grass, dirt, road, sand, snow, swamp, water, lava                                                               | 128×128 tileable                                                             | Only if the game has an overworld       |
+| Outdoor blocks           | trees, mountains, rocks, town buildings                                                                         | 128×128 wall-style or billboards                                             |                                         |
+| Sky                      | per biome × day/dusk/night                                                                                      | wide panorama, e.g. 1024×256                                                 |                                         |
+| Monster sprites          | 40-100                                                                                                          | 128-256 px tall billboards, 1 frame minimum, 3 (idle/attack/hit) if animated | Six placeholders exist                  |
+| Boss / cutscene art      | per story beat                                                                                                  | full screen 640×480                                                          | Intro, ending, chapters                 |
+| Party portraits          | 20-30                                                                                                           | 45×45                                                                        | Enough for character creation choices   |
+| NPC portraits            | 1 per named NPC                                                                                                 | 45×45                                                                        | Replaces the recoloured ones            |
+| Condition / status icons | ~12                                                                                                             | 16×16                                                                        | Poisoned, asleep, dead, …               |
+| Item icons               | armor families × tiers, accessories, wands, quest items                                                         | 16×16                                                                        | Weapons and basics exist (CC BY pack)   |
+| UI                       | title screen, game over, victory, map screen frame, combat panel, cursor                                        | 640×480 and skin pieces                                                      | Dark Ages UI covers windows and buttons |
+
+### Audio
+
+- Music: title, town, dungeon ×2-3, cave, outdoor day, outdoor night, combat, boss, victory, game over, cutscene.
+- Effects: footsteps (stone, grass, water), door open/locked, chest, trap, coins, buy, error, UI click, level up, rest,
+  melee hit/miss by weapon class, arrow, spell per element, heal, monster attack/hit/die (per monster family), party member dies.
+
+### Data and writing
+
+- World file: map list with names, indoor/outdoor, music, start position, starting party or inn roster.
+- Tables: monsters, armor, item enchantments, spells, classes, races, skills, awards.
+- Maps and events for every area, NPC lines, signs, rumors per tavern, quest text, awards text.
+- Story: intro, chapter cutscenes, ending, credits.
+- Licences for every third-party asset in `CREDITS.md`.

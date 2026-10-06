@@ -11,7 +11,7 @@ import (
 	"image/png"
 	"strings"
 
-	_ "embed"
+	"embed"
 
 	"blobber/font"
 	"blobber/party"
@@ -379,39 +379,38 @@ func (v *Inventory) Draw(screen *ebiten.Image) {
 	v.present(screen)
 }
 
-//go:embed assets/items.png
-var itemsPNG []byte
+// Item icons: Kyrise's 16x16 RPG Icon Pack (CC BY 4.0), one file per Icon name.
+//
+//go:embed assets/items/*.png
+var itemFS embed.FS
 
-// itemIcons is Legacy's 8x8 inventory icon strip (its charset row 5, tiles 160-191).
-var itemIcons = func() *ebiten.Image {
-	img, err := png.Decode(bytes.NewReader(itemsPNG))
-	if err != nil {
-		panic(err)
+var itemIcons = map[string]*ebiten.Image{}
+
+// itemIcon returns the icon for an item's Icon name, or nil.
+func itemIcon(name string) *ebiten.Image {
+	if img, ok := itemIcons[name]; ok {
+		return img
 	}
-	return ebiten.NewImageFromImage(img)
-}()
-
-// itemIcon maps an item's Icon name to its tile in itemIcons, numbered as in Legacy.
-var itemIcon = map[string]int{
-	"plate": 160, "helmet": 161, "shield": 165, "sword": 164, "spear": 166, "staff": 167, "ring": 168,
-	"bag": 169, "gem": 169, "bow": 170, "crossbow": 171, "key": 172, "potion": 173, "torch": 174, "scroll": 175,
-	"pickaxe": 176, "shovel": 177, "armor": 178, "leather": 180, "greatsword": 186, "dagger": 187,
-	"robe": 188, "boots": 189, "amulet": 190,
+	var img *ebiten.Image
+	if b, err := itemFS.ReadFile("assets/items/" + name + ".png"); err == nil {
+		if m, err := png.Decode(bytes.NewReader(b)); err == nil {
+			img = ebiten.NewImageFromImage(m)
+		}
+	}
+	itemIcons[name] = img
+	return img
 }
 
-// icon draws an item's 8x8 icon at 2x (16x16), or else the 16x16 sprite of that name.
+// icon draws an item's 16x16 icon, or else the 16x16 sprite of that name.
 func icon(dst *ebiten.Image, name string, x, y int, scale float64) {
 	img := sprites.Get(name)
-	op := &ebiten.DrawImageOptions{}
-	if n, ok := itemIcon[name]; ok {
-		s := int(16 * scale)
-		fillRect(dst, rc(x-1, y-1, s+2, s+2), ink) // dark tile behind the icon
-		img = itemIcons.SubImage(rc((n-160)*8, 0, 8, 8)).(*ebiten.Image)
-		op.GeoM.Scale(2, 2)
+	if it := itemIcon(name); it != nil {
+		img = it
 	}
 	if img == nil {
 		return
 	}
+	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(scale, scale)
 	op.GeoM.Translate(float64(x), float64(y))
 	dst.DrawImage(img, op)

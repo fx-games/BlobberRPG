@@ -89,11 +89,11 @@ func (t *Talk) Draw(screen *ebiten.Image) {
 	if !ok {
 		npc.Name = t.Who
 	}
-	DarkFrame(d, rc(32, 166, 2*PortraitSize+12, 2*PortraitSize+12))
+	DarkFrame(d, rc(32, 166, 2*PortraitSize+16, 2*PortraitSize+16)) // 8 px border
 	if img := PortraitID(npc.Portrait); img != nil {
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Scale(2, 2)
-		op.GeoM.Translate(38, 172)
+		op.GeoM.Translate(40, 174)
 		d.DrawImage(img, op)
 	}
 	Print(d, npc.Name, talkTextX, 168, gold)

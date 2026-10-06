@@ -75,9 +75,9 @@ event 15,1 any use
 event 17,1 n
   text sign "GIVEITEM / ITEMTYPE" "F: an enchanted sword and a ring"
 event 17,1 any use
-  giveitem sword 1
+  giveitem steel_sword 1
   itemtype ring
-  text "You get a sword +1 and a ring (I)"
+  text "You get a steel sword +1 and a ring (I)"
 
 event 19,1 n
   text sign "GIVE key" "F: take the brass key"

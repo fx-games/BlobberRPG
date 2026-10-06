@@ -58,8 +58,8 @@ event 1,5 any use
   exchobj lever lever_pulled
   altercell 3 2 .
   spawn guardian 4 3
-  giveitem dagger 2
-  text "The lever clanks down. A wall grinds open" "and a stone guardian wakes. You find a dagger."
+  giveitem iron_dagger 2
+  text "The lever clanks down. A wall grinds open" "and a stone guardian wakes. You find an iron dagger."
   exit
 done:
   text "The lever is stuck."

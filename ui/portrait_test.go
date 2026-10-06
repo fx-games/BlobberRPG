@@ -24,11 +24,11 @@ func TestPortraits(t *testing.T) {
 
 func TestItemIcons(t *testing.T) {
 	for name, it := range party.Catalog {
-		if _, ok := itemIcon[it.Icon]; !ok {
+		if itemIcon(it.Icon) == nil {
 			t.Errorf("%s: no inventory icon %q", name, it.Icon)
 		}
 	}
-	if _, ok := itemIcon["key"]; !ok {
+	if itemIcon("key") == nil {
 		t.Error("keys have no icon")
 	}
 }

@@ -211,7 +211,8 @@ func (c *canvas) begin() *ebiten.Image {
 
 func (c *canvas) present(screen *ebiten.Image) {
 	c.k = K(cw, ch)
-	c.ox, c.oy = (blobber.W-cw*c.k)/2, (blobber.H-ch*c.k)/2
+	// centred, but never over the party cards
+	c.ox, c.oy = (blobber.W-cw*c.k)/2, max(0, min((blobber.H-ch*c.k)/2, blobber.H-(cardH+4)*c.k-ch*c.k))
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(float64(c.k), float64(c.k))
 	op.GeoM.Translate(float64(c.ox), float64(c.oy))
@@ -251,6 +252,7 @@ func Install() {
 	blobber.Window = Window
 	blobber.SignImage = SignImage
 	blobber.Panel = Panel
+	blobber.Help = &HelpScreen{}
 }
 
 var winCanvas = ebiten.NewImage(cw*2, ch*2)

@@ -19,7 +19,7 @@ type Character struct {
 	AC, Level, Age, Exp    int
 	Num                    map[string]int  // stats, resistances and their tmp bonuses, actmp, leveltmp
 	Has                    map[string]bool // "award:x", "skill:x", "condition:x", "spell:x"
-	Equipped               map[Slot]*Item
+	Equipped               map[Slot]*Item  `json:"-"` // rebuilt by Relink after a load
 }
 
 func NewCharacter(name, class string, hp, sp int) *Character {
@@ -33,14 +33,15 @@ func NewCharacter(name, class string, hp, sp int) *Character {
 
 type Party struct {
 	Chars            []*Character
-	Inventory        [][]*Item // shared, stacked; equipped items included
+	Roster           []*Character // waiting at the inn
+	Inventory        [][]*Item    // shared, stacked; equipped items included
 	Gold, Gems, Food int
 	Bank             int // gold deposited in town
 	Minutes          int // since midnight
 	Day, Year        int
 	Flags            map[string]bool
-	OnHit            func(who, n int, kind string) // after damage: 1-based character, points taken, kind
-	OnCast           func(Spell)                   // after a spell is cast, for its effect in the world
+	OnHit            func(who, n int, kind string) `json:"-"` // after damage: 1-based character, points taken, kind
+	OnCast           func(Spell)                   `json:"-"` // after a spell is cast, for its effect in the world
 }
 
 func New(chars ...*Character) *Party {

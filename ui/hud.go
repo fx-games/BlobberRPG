@@ -14,9 +14,9 @@ import (
 
 const (
 	hitFrames      = 70 // how long a damage icon stays on a portrait
-	cardW, cardH   = 140, 57
+	cardW, cardH   = 142, 61
 	cardGap        = 2
-	portraitX, pY0 = 6, 6 // inside the card frame
+	portraitX, pY0 = 8, 8 // just inside the frame's 8 px border
 	textX          = portraitX + PortraitSize + 6
 )
 
@@ -38,6 +38,9 @@ func Hit(who, n int, kind string) { hits[who-1] = hitMark{kind, n, frameNo} }
 // card is character i's rectangle on screen, in device pixels, for a party of n.
 func card(i, n int) image.Rectangle {
 	k := K(cw, ch)
+	if (cardW+cardGap)*k*n > blobber.W { // six cards: shrink until the row fits
+		k = max(1, blobber.W/((cardW+cardGap)*n))
+	}
 	w := (cardW + cardGap) * k
 	x := (blobber.W-w*n)/2 + i*w
 	y := blobber.H - (cardH+4)*k

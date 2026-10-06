@@ -3,6 +3,7 @@ package blobber
 import (
 	"image"
 	"math"
+	"os"
 	"testing"
 )
 
@@ -69,14 +70,49 @@ func BenchmarkVisibleCells(b *testing.B) {
 
 func TestBoltHitsActor(t *testing.T) {
 	defer SwapPopulation(SwapPopulation(nil))
-	SpawnActor(image.NewRGBA(image.Rect(0, 0, 1, 1)), 3, 4)
-	if hitActor(2, 4, 5) || !hitActor(3, 4, 5) || len(actors) != 1 {
+	SpawnActor("rat", image.NewRGBA(image.Rect(0, 0, 1, 1)), 3, 4, 10)
+	if HitMonster(2, 4, 5) || !HitMonster(3, 4, 5) || len(actors) != 1 {
 		t.Fatal("first hit wounds")
 	}
 	killed := false
-	OnKill = func(x, y int) { killed = x == 3 && y == 4 }
+	OnKill = func(m Monster) { killed = m.Name == "rat" && m.X == 3 && m.Y == 4 }
 	defer func() { OnKill = nil }()
-	if !hitActor(3, 4, 5) || len(actors) != 0 || !killed {
+	if !HitMonster(3, 4, 5) || len(actors) != 0 || !killed {
 		t.Fatal("second hit kills")
+	}
+}
+
+func TestDoorIsPassable(t *testing.T) {
+	old := level
+	defer func() { level = old }()
+	level = []string{"###", "#D#", "#L#"}
+	if wall(1, 1) || !wall(1, 2) || !wall(0, 1) {
+		t.Fatal("D open, L and # closed")
+	}
+}
+
+// A sheet-backed monster plays hurt on a wound and death on a kill, and is gone once death ends.
+func TestSheetAnimation(t *testing.T) {
+	defer SwapPopulation(SwapPopulation(nil))
+	s, err := LoadSheet(os.DirFS("cmd/blobber/assets/monsters"), "ice_giant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Anims["idle"].Frames) != 4 || len(s.Anims["death"].Frames) != 5 || s.Anims["attack"].Loop {
+		t.Fatalf("rows: %+v", s.Anims)
+	}
+	SpawnSheet("ice_giant", s, 2, 2, 10)
+	g := &Game{}
+	HitMonster(2, 2, 3)
+	if a := actorAt(2, 2); a == nil || a.anim != s.Anims["hurt"] {
+		t.Fatal("hurt not playing")
+	}
+	HitMonster(2, 2, 10)
+	if actorAt(2, 2) != nil || len(actors) != 1 || !actors[0].dying || MonsterAt(2, 2) != "" {
+		t.Fatal("dying monster should linger but not count")
+	}
+	g.updateActors(10)
+	if len(actors) != 0 {
+		t.Fatal("death animation should end and remove the actor")
 	}
 }

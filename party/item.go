@@ -39,7 +39,8 @@ const (
 var Slots = []Slot{RightHand, LeftHand, Ranged, Helmet, Body, Shoes, Robe, RingL, RingR, Amulet1, Amulet2}
 
 type Item struct {
-	Base   string // catalog name, e.g. "dagger"
+	Base   string // catalog name, e.g. "steel_dagger"
+	Title  string // display name, e.g. "Steel Dagger"; Base when empty
 	Kind   Kind
 	Slot   Slot // preferred slot; "" if not equippable
 	Icon   string
@@ -48,15 +49,13 @@ type Item struct {
 	Damage int
 	Heal   int // consumables: HP, scrolls: SP
 	Value  int
-	Wearer *Character
+	Wearer *Character `json:"-"`
+	Worn   int        `json:",omitempty"` // save only: 1-based wearer slot, see Party.Prepare / Relink
+	WornAt Slot       `json:",omitempty"`
 }
 
 // Catalog holds the item templates scripts can name.
 var Catalog = map[string]Item{
-	"dagger":    {Kind: Weapon, Slot: RightHand, Icon: "dagger", Damage: 3, Value: 20},
-	"sword":     {Kind: Weapon, Slot: RightHand, Icon: "sword", Damage: 6, Value: 60},
-	"bow":       {Kind: Weapon, Slot: Ranged, Icon: "bow", Damage: 4, Value: 50},
-	"shield":    {Kind: Armor, Slot: LeftHand, Icon: "shield", AC: 2, Value: 40},
 	"helmet":    {Kind: Armor, Slot: Helmet, Icon: "helmet", AC: 1, Value: 30},
 	"chainmail": {Kind: Armor, Slot: Body, Icon: "armor", AC: 4, Value: 120},
 	"boots":     {Kind: Armor, Slot: Shoes, Icon: "boots", AC: 1, Value: 15},
@@ -84,10 +83,14 @@ func NewKey(name string) *Item {
 }
 
 func (it *Item) Name() string {
-	if it.Bonus > 0 {
-		return fmt.Sprintf("%s +%d", it.Base, it.Bonus)
+	n := it.Base
+	if it.Title != "" {
+		n = it.Title
 	}
-	return it.Base
+	if it.Bonus > 0 {
+		return fmt.Sprintf("%s +%d", n, it.Bonus)
+	}
+	return n
 }
 
 func (it *Item) Equippable() bool { return it.Slot != "" }

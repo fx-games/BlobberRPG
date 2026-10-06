@@ -21,7 +21,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-//go:embed assets/monsters/*.png
+//go:embed assets/monsters
 var monsters embed.FS
 
 // loadMonster decodes assets/monsters/<name>.png.
@@ -33,11 +33,16 @@ func loadMonster(name string) (image.Image, error) {
 	return png.Decode(bytes.NewReader(b))
 }
 
+// loadSheet reads the animated monster in assets/monsters/<name>/ (sheet.png + manifest.json).
+func loadSheet(name string) (*blobber.Sheet, error) {
+	return blobber.LoadSheet(monsters, "assets/monsters/"+name)
+}
+
 func main() {
 	pt := party.New(party.NewCharacter("Ann", "knight", 30, 0), party.NewCharacter("Bob", "monk", 12, 20), party.NewCharacter("Cyd", "robber", 20, 0))
 	pt.Chars[0].Sex = "f"
 	pt.Gold = 500
-	for _, s := range []string{"dagger", "chainmail", "shield", "helmet", "boots", "ring"} {
+	for _, s := range []string{"bronze_dagger", "chainmail", "oak_shield", "helmet", "boots", "ring"} {
 		pt.AddItem(party.NewItem(s, 0))
 	}
 	pt.AddItem(party.NewItem("potion", 0))
@@ -47,7 +52,6 @@ func main() {
 		f.Close()
 	}
 	host := newConsole(pt)
-	vm := host.vm
 	w, err := host.enter("demo")
 	if err != nil {
 		log.Fatal(err)
@@ -55,17 +59,17 @@ func main() {
 
 	blobber.DebugLines = pt.Summary
 	blobber.HUD = func(s *ebiten.Image) { ui.DrawParty(s, pt) }
-	blobber.TileMarks = func() map[[2]int]int { return vm.Marks(host.m) }
+	blobber.TileMarks = func() map[[2]int]int { return host.vm.Marks(host.m) }
 	blobber.OnPromptAnswer = func() []string { // character list for "who will" prompts
 		var l []string
 		for i, c := range pt.Chars {
-			l = append(l, fmt.Sprintf("  %d  %s", i+1, c.Name))
+			l = append(l, fmt.Sprintf("  F%d  %s", i+1, c.Name))
 		}
 		return l
 	}
 	blobber.OnMove = func(x, y, dir int) {
 		blobber.ClearSign()
-		pump(vm, vm.Trigger(host.m, x, y, events.Facing(dir)))
+		pump(host.vm, host.vm.Trigger(host.m, x, y, events.Facing(dir)))
 	}
 	// F: take what lies here; with nothing to take, search the tile.
 	blobber.OnUse = func(x, y, dir int) {
@@ -73,13 +77,23 @@ func main() {
 			blobber.ShowSign(x, y, dir, []string{"Taken: " + strings.Join(got, ", ")})
 			return
 		}
-		pump(vm, vm.Use(host.m, x, y, events.Facing(dir)))
+		pump(host.vm, host.vm.Use(host.m, x, y, events.Facing(dir)))
 	}
+	blobber.Keys[ebiten.KeyF5] = func() { report(host.saveGame(), "Game saved.") }
+	blobber.Keys[ebiten.KeyF9] = func() { report(host.loadGame(), "Game loaded.") }
 	blobber.Keys[ebiten.KeyI] = func() { blobber.Modal = ui.NewInventory(pt) }
+	for i := range pt.Chars { // F1-F6: that character's inventory
+		blobber.Keys[ebiten.KeyF1+ebiten.Key(i)] = func() {
+			inv := ui.NewInventory(pt)
+			inv.Select(i)
+			blobber.Modal = inv
+		}
+	}
 	sfx.Init()
 	blobber.Keys[ebiten.KeyC] = func() { blobber.Modal = ui.NewSpellbook(pt) }
 	pt.OnCast = func(s party.Spell) {
 		sfx.Play("magic")
+		blobber.EndTurn()
 		switch s.ID {
 		case "light":
 			blobber.Light(60)
@@ -89,10 +103,17 @@ func main() {
 			blobber.Bolt(s.Power, 5, 1, 0.3, 0.1)
 		}
 	}
-	blobber.OnKill = func(x, y int) { sfx.Play("fanfare") }
+	host.installCombat()
 	pt.OnHit = func(who, n int, kind string) {
 		ui.Hit(who, n, kind)
 		sfx.Play("hit")
+		if host.Wiped() { // game over: back to the last save, or quit
+			blobber.Modal = &ui.Talk{Text: "Your party has fallen.", Done: func(bool) {
+				if host.loadGame() != nil {
+					os.Exit(0)
+				}
+			}}
+		}
 	}
 	// clicking a portrait opens that character's inventory
 	blobber.OnClick = func(x, y int) bool {
@@ -111,6 +132,15 @@ func main() {
 	if err := blobber.Run(w.lvl, 1, 1, 1); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// report shows the outcome of a save or load in the message strip.
+func report(err error, ok string) {
+	if err != nil {
+		blobber.Message(err.Error())
+		return
+	}
+	blobber.Message(ok)
 }
 
 // devOpen opens windows named in BLOBBER_OPEN (comma separated) at startup, for checking the look
@@ -132,6 +162,8 @@ func devOpen(host *console) {
 			host.Cutscene(arg)
 		case "hit":
 			host.Party.Damage(0, 3, cmp.Or(arg, "fire"))
+		case "help": // as a window, for the look
+			blobber.Modal = &ui.HelpScreen{}
 		case "spells": // Bob knows every spell, book open
 			for _, s := range party.Spells {
 				host.Party.Chars[1].Learn(s.ID)
@@ -140,7 +172,7 @@ func devOpen(host *console) {
 		case "npc": // npc:ID shows that NPC talking
 			blobber.Modal = &ui.Talk{Who: arg, Text: "Peace, travellers. The temple heals the wounded and lifts curses, for an offering. Will you give?", Ask: true}
 		case "prompt":
-			blobber.ShowPrompt([]string{"Who will search the rubble?", "  1  Ann", "  2  Bob", "  3  Cyd"}, false, func(string) {})
+			blobber.ShowPrompt([]string{"Who will search the rubble?", "  F1  Ann", "  F2  Bob", "  F3  Cyd"}, false, func(string) {})
 		case "sign": // after the first frame: Run clears signs
 			hud := blobber.HUD
 			blobber.HUD = func(s *ebiten.Image) {

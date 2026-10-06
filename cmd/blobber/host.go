@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -34,11 +35,19 @@ type world struct {
 
 // floorItem is loot hidden on a tile; as in World of Xeen items are never drawn in the world, F finds them.
 type floorItem struct {
-	it   *party.Item
-	x, y int
+	It   *party.Item
+	X, Y int
 }
 
 func newConsole(p *party.Party) *console {
+	for name, load := range map[string]func(io.Reader) error{"monsters.txt": loadMonsters, "classes.txt": party.LoadClasses, "races.txt": party.LoadRaces} {
+		if f, err := maps.Open(name); err == nil {
+			if err := load(f); err != nil {
+				fmt.Println(" ", err)
+			}
+			f.Close()
+		}
+	}
 	c := &console{Party: p, worlds: map[string]*world{}}
 	c.vm = events.New(c)
 	return c
@@ -129,7 +138,7 @@ func (c *console) place(w *world, line string) error {
 	case "item":
 		w.drop(party.NewItem(f[1], num(4)), num(2), num(3))
 	case "monster":
-		return c.spawn(f[1], num(2), num(3))
+		return c.spawn(f[1], num(2), num(3), -1)
 	case "deco":
 		k, ok := map[string]int{"grass": blobber.Grass, "lantern": blobber.Lantern, "firefly": blobber.Firefly}[f[1]]
 		if !ok {
@@ -159,9 +168,9 @@ func (c *console) TakeFloor(x, y int) []string {
 	var names []string
 	kept := w.floor[:0]
 	for _, f := range w.floor {
-		if f.x == x && f.y == y {
-			c.AddItem(f.it)
-			names = append(names, f.it.Name())
+		if f.X == x && f.Y == y {
+			c.AddItem(f.It)
+			names = append(names, f.It.Name())
 		} else {
 			kept = append(kept, f)
 		}
@@ -207,22 +216,7 @@ func (c *console) Fall(m string, x, y, d int) {
 	c.Party.Damage(0, d, "physical")
 }
 
-func (c *console) Spawn(mon string, x, y int) { c.spawn(mon, x, y) }
-
-// spawn adds a monster drawn with a debug sprite, or else with assets/monsters/<name>.png.
-func (c *console) spawn(mon string, x, y int) error {
-	if img := sprites.Get(mon); img != nil {
-		blobber.SpawnActor(img, x, y)
-		return nil
-	}
-	img, err := loadMonster(mon)
-	if err != nil {
-		fmt.Println("  spawn failed:", err)
-		return err
-	}
-	blobber.SpawnActor(img, x, y)
-	return nil
-}
+func (c *console) Spawn(mon string, x, y int) { c.spawn(mon, x, y, -1) }
 
 // SetWall changes the wall on one side of cell x,y. Walls are whole cells here, so this sets the
 // neighbouring cell on that side: KIND is a material letter (# B M W I, any case), a material name

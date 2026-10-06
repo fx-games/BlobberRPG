@@ -1,6 +1,10 @@
 package party
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestProps(t *testing.T) {
 	p := New(NewCharacter("Ann", "knight", 30, 0), NewCharacter("Bob", "sorcerer", 12, 20))
@@ -121,5 +125,71 @@ func TestSpells(t *testing.T) {
 	monk.SP = 2
 	if _, err := p.Cast(monk, "fireball"); err == nil {
 		t.Fatal("cast without SP")
+	}
+}
+
+func TestWeaponFamilies(t *testing.T) {
+	s, b := NewItem("steel_longsword", 0), NewItem("bloodforged_longsword", 0)
+	if s.Name() != "Steel Longsword" || s.Kind != Weapon || b.Damage <= s.Damage || b.Value <= s.Value {
+		t.Fatalf("%+v %+v", s, b)
+	}
+	if NewItem("oak_shield", 0).Slot != LeftHand || Tier(Catalog["oak_staff"]) != 0 || Tier(Catalog["iron_pike"]) != 1 {
+		t.Fatal("shield slot or tiers")
+	}
+	if _, ok := Catalog["bronze_pike"]; ok {
+		t.Fatal("pikes start at iron")
+	}
+}
+
+func TestSaveRoundTrip(t *testing.T) {
+	p := New(NewCharacter("A", "knight", 30, 0), NewCharacter("B", "monk", 12, 20))
+	p.AddItem(NewItem("ring", 1))
+	p.AddItem(NewItem("ring", 1))
+	p.Equip(p.Chars[1], p.Inventory[0][0])
+	p.Prepare()
+	b, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var q Party
+	if err := json.Unmarshal(b, &q); err != nil {
+		t.Fatal(err)
+	}
+	q.Relink()
+	it := q.Chars[1].Equipped[RingL]
+	if it == nil || it.Wearer != q.Chars[1] || q.FindItem("ring") == nil || q.FindItem("ring").Wearer != nil {
+		t.Fatalf("relink: %+v", q.Chars[1].Equipped)
+	}
+}
+
+func TestClassesAndInn(t *testing.T) {
+	if err := LoadClasses(strings.NewReader("knight 10 0 100\nsorcerer 4 7 110\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadRaces(strings.NewReader("dwarf 2 -1 -1 2 -1 0 0\n")); err != nil {
+		t.Fatal(err)
+	}
+	c := Create("Dur", "m", "dwarf", "sorcerer", func(n int) int { return 2 })
+	if c.Num["might"] != 12 || c.Num["int"] != 9 || c.MaxSP != 7 || c.MaxHP != 4 || !c.CanLearn() {
+		t.Fatalf("%+v", c)
+	}
+	if c.ExpToLevel() != 110 {
+		t.Fatal("exp")
+	}
+	c.LevelUp()
+	if c.Level != 2 || c.MaxHP != 8 || c.MaxSP != 14 { // end 12 gives no bonus: 4 + 4
+		t.Fatalf("level up: hp %d sp %d", c.MaxHP, c.MaxSP)
+	}
+	p := New(NewCharacter("A", "knight", 30, 0), c)
+	p.AddItem(NewItem("ring", 0))
+	p.Equip(c, p.Inventory[0][0])
+	if !p.Dismiss(1) || len(p.Chars) != 1 || len(p.Roster) != 1 || p.Inventory[0][0].Wearer != nil {
+		t.Fatal("dismiss")
+	}
+	if p.Dismiss(0) {
+		t.Fatal("last member must stay")
+	}
+	if !p.Hire(0) || len(p.Chars) != 2 || len(p.Roster) != 0 {
+		t.Fatal("hire")
 	}
 }

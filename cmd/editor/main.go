@@ -3,8 +3,9 @@
 //	go run ./cmd/editor [mapname]      (default: demo; edits maps/<name>.map and maps/<name>.evt)
 //
 // Mouse: left paints the palette material, right selects a tile for events, click a palette swatch
-// to choose a material, click a keyword to insert its template into the script, click in the script
-// to edit it. Keys: Ctrl+S save, N new event on the selected tile, F cycle facing, U toggle use,
+// to choose a material, click a monster thumbnail then a tile to place (or remove) that monster,
+// click a keyword to insert its template into the script, click in the script to edit it.
+// Monsters come from cmd/blobber/assets/monsters: every <name>.png and every <name>/ sheet folder. Keys: Ctrl+S save, N new event on the selected tile, F cycle facing, U toggle use,
 // Delete remove event, Tab next event, Shift+Arrows grow the map, Ctrl+Shift+Arrows shrink it.
 package main
 
@@ -41,7 +42,7 @@ var facings = []string{"n", "e", "s", "w", "any"}
 var templates = []string{
 	`text sign "..."`, `npc Name face "..." confirm L`, `if mapflag NAME goto L`, `if gold >= 10 goto L`,
 	`give gold 10`, `take gold 10`, `set mapflag NAME`, `whowill search "Who will?"`, `setchar 0`, `selrndchar`,
-	`damage 5 fire`, `rnddamage poison 10`, `giveitem sword`, `teleport MAP X Y`, `fall MAP X Y 5`,
+	`damage 5 fire`, `rnddamage poison 10`, `giveitem steel_sword`, `teleport MAP X Y`, `fall MAP X Y 5`,
 	`spawn goblin X Y`, `alterwall X Y n #`, `altercell X Y .`, `moveobj NAME X Y`, `exchobj A B`,
 	`sound NAME`, `music NAME`, `cutscene NAME`, `town tavern`, `goto L`, `gotorandom A B`,
 	`jumprnd 10 1 goto L`, `choose A B`, `confirm "Password?" "word" goto L`, `call X,Y any`, `return`,
@@ -69,7 +70,53 @@ type editor struct {
 	focus   bool // keyboard goes to the script
 	status  string
 	swatch  map[byte]*ebiten.Image
-	extra   []string // object/item/monster/deco lines of the .map file, kept verbatim
+	extra   []string                 // object/item/monster/deco lines of the .map file, kept verbatim
+	mons    map[string]*ebiten.Image // monster thumbnails by name
+	monList []string
+	mon     string // monster brush; "" paints walls
+}
+
+const monsterDir = "cmd/blobber/assets/monsters"
+
+// loadMonsters finds every monster picture and sheet folder in monsterDir.
+func (e *editor) loadMonsters() {
+	e.mons = map[string]*ebiten.Image{}
+	entries, _ := os.ReadDir(monsterDir)
+	for _, d := range entries {
+		name := strings.TrimSuffix(d.Name(), ".png")
+		if d.IsDir() {
+			if s, err := blobber.LoadSheet(os.DirFS(monsterDir), name); err == nil {
+				e.mons[name] = s.Idle()
+			}
+		} else if strings.HasSuffix(d.Name(), ".png") {
+			if img, _, err := ebitenutil.NewImageFromFile(monsterDir + "/" + d.Name()); err == nil {
+				e.mons[name] = img
+			}
+		}
+	}
+	for n := range e.mons {
+		e.monList = append(e.monList, n)
+	}
+	sort.Strings(e.monList)
+}
+
+// placeMonster puts e.mon at (x, y), replacing a monster there; placing the same one again removes it.
+func (e *editor) placeMonster(x, y int) {
+	line := fmt.Sprintf("monster %s %d %d", e.mon, x, y)
+	kept := e.extra[:0]
+	removed := false
+	for _, l := range e.extra {
+		f := strings.Fields(l)
+		if f[0] == "monster" && len(f) >= 4 && f[2]+" "+f[3] == fmt.Sprintf("%d %d", x, y) {
+			removed = removed || l == line
+			continue
+		}
+		kept = append(kept, l)
+	}
+	e.extra = kept
+	if !removed {
+		e.extra = append(e.extra, line)
+	}
 }
 
 // ---------- files ----------
@@ -183,7 +230,9 @@ func (e *editor) Update() error {
 		e.focus = false
 		e.click(mx, my)
 	}
-	if onGrid && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mx < panelX {
+	if onGrid && e.mon != "" && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		e.placeMonster(gx, gy)
+	} else if onGrid && e.mon == "" && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && mx < panelX {
 		e.grid[gy][gx] = e.brush
 	}
 	if onGrid && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
@@ -260,9 +309,10 @@ func (e *editor) tileEvents() []*event {
 // panel layout (y offsets)
 const (
 	palY    = 10
-	evY     = 110
-	scriptY = 200
-	scriptH = 300
+	monY    = 96
+	evY     = 150
+	scriptY = 240
+	scriptH = 260
 	tmplY   = scriptY + scriptH + 20
 )
 
@@ -274,7 +324,13 @@ func (e *editor) click(mx, my int) {
 	// palette
 	if my >= palY && my < palY+40 {
 		if i := px / 44; i < len(e.palette) {
-			e.brush = e.palette[i]
+			e.brush, e.mon = e.palette[i], ""
+		}
+		return
+	}
+	if my >= monY && my < monY+40 {
+		if i := px / 44; i < len(e.monList) {
+			e.mon = e.monList[i]
 		}
 		return
 	}
@@ -389,7 +445,11 @@ func (e *editor) Draw(screen *ebiten.Image) {
 			x, _ = strconv.Atoi(f[xi])
 			y, _ = strconv.Atoi(f[xi+1])
 		}
-		if img := sprites.Get(name); img != nil && x >= 0 && y >= 0 {
+		img := e.mons[name]
+		if img == nil {
+			img = sprites.Get(name)
+		}
+		if img != nil && x >= 0 && y >= 0 {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Scale(float64(cell-4)/float64(img.Bounds().Dy()), float64(cell-4)/float64(img.Bounds().Dy()))
 			op.GeoM.Translate(float64(x*cell+2), float64(y*cell+2))
@@ -412,10 +472,24 @@ func (e *editor) Draw(screen *ebiten.Image) {
 			op.GeoM.Translate(float64(x), palY)
 			screen.DrawImage(sw, op)
 		}
-		if ch == e.brush {
+		if ch == e.brush && e.mon == "" {
 			vector.StrokeRect(screen, x-1, palY-1, 42, 42, 2, color.RGBA{255, 255, 255, 255}, false)
 		}
 		ebitenutil.DebugPrintAt(screen, string(ch), int(x)+16, palY+42)
+	}
+	for i, n := range e.monList {
+		x := px + float32(i*44)
+		img := e.mons[n]
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(40/float64(img.Bounds().Dx()), 40/float64(img.Bounds().Dy()))
+		op.GeoM.Translate(float64(x), monY)
+		screen.DrawImage(img, op)
+		if n == e.mon {
+			vector.StrokeRect(screen, x-1, monY-1, 42, 42, 2, color.RGBA{255, 255, 255, 255}, false)
+		}
+	}
+	if e.mon != "" {
+		ebitenutil.DebugPrintAt(screen, "monster brush: "+e.mon+" (click a tile to place, again to remove)", panelX, monY+42)
 	}
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s  %dx%d   Ctrl+S save   Shift+Arrows grow, Ctrl+Shift+Arrows shrink", e.name, len(e.grid[0]), len(e.grid)), panelX, palY+66)
 
@@ -460,9 +534,10 @@ func main() {
 		e.name = os.Args[1]
 	}
 	e.load()
+	e.loadMonsters()
 	blobber.GenTextures()
 	e.palette = []byte{'.'}
-	for ch := range blobber.MatColors {
+	for _, ch := range blobber.WallChars() {
 		e.palette = append(e.palette, ch)
 		e.swatch[ch] = blobber.Material(ch)
 	}

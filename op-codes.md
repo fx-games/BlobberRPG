@@ -84,7 +84,7 @@ Most properties act on the **selected character** (see `setchar`, `whowill`, `se
 |---|---|---|
 | `teleport MAP X Y [continue]` | 0x07 Teleport / 0x1F TeleportAndContinue | moves the party; exits the event unless `continue` |
 | `fall MAP X Y DAMAGE` | 0x34 FallToMap | moves the party with fall damage; exits |
-| `spawn MONSTER X Y` | 0x10 Spawn | places a monster |
+| `spawn MONSTER X Y` | 0x10 Spawn | places a monster; MONSTER is an id from `maps/monsters.txt` |
 | `alterwall X Y SIDE KIND` | 0x13 AlterMap | changes the wall on SIDE (n e s w) of a cell. Walls are whole cells, so this sets the neighbouring cell. KIND is a material letter or name (stone brick moss wood iron), `wall`, or `open` |
 | `altercell X Y KIND` | 0x23 AlterCellFlag | changes a cell's floor type |
 | `moveobj NAME X Y` | 0x0B MoveObj | moves a map object |
@@ -128,6 +128,7 @@ done:
 - `item NAME` checks for, gives or takes inventory items from the catalog: dagger, sword, bow, shield, helmet, chainmail, boots, robe, ring, amulet, potion, scroll, gem. Unknown names become misc items.
 - `key NAME` is the item "NAME key". `give key brass`, `if key brass goto L`, `take key brass`.
 - `giveitem BASE [BONUS]` and `itemtype BASE` add one item to the shared party inventory.
+- Weapons are named MATERIAL_FAMILY, e.g. `steel_longsword`, `oak_staff`, `bloodforged_katana`. Materials, worst to best: bronze (oak for wooden weapons), iron, steel, orichalcum, bloodforged. Families and stats are in `party/weapons.go`. The smith sells up to steel.
 
 Extra lines in a `.map` file, after the grid:
 
@@ -135,7 +136,12 @@ Extra lines in a `.map` file, after the grid:
 |------|---------|
 | `object NAME SPRITE X Y` | A named billboard. `moveobj`, `movewall` and `exchobj` act on it. Put it at -1 -1 to hide it. |
 | `item BASE X Y [BONUS]` | An item hidden on the tile, never drawn (as in World of Xeen). F finds and takes it. |
-| `monster SPRITE X Y` | A monster billboard. |
+| `monster ID X Y` | A monster from `maps/monsters.txt` (`id sprite hp ac dmg exp`). Unknown ids are drawn with a sprite of their own name and get stock stats. |
+
+Monster pictures live in `cmd/blobber/assets/monsters/`: either `<sprite>.png` (a still) or a folder
+`<sprite>/` holding `sheet.png` and `manifest.json` (an `animation` block with the cell size and the
+`idle`, `attack`, `hurt` and `death` rows). Sheets play idle in a loop, attack when the monster strikes,
+hurt when wounded and death when killed. Drop a folder there and the editor's monster row shows it.
 | `deco grass\|lantern\|firefly X Y` | Decoration. |
 
 Spells: the Mage Guild (`town guild`) teaches the spells in `party/spells.go` to casters
@@ -143,6 +149,17 @@ Spells: the Mage Guild (`town guild`) teaches the spells in `party/spells.go` to
 the `spell` property with the spell id as its argument, so scripts can test, give and take spells.
 
 In game, F takes floor items first and otherwise runs the tile's `use` event. I opens the inventory.
+
+## Turns, combat, saving
+
+Play is turn-based: a step, strafe, attack or wait (Space) is one turn, after which every monster acts.
+Turning in place is free. A monster next to the party attacks a random living character; one within
+sight steps towards the party; others wander. Walking into a monster attacks it with every living
+character (right-hand weapon, fists for 2). A kill gives its `exp` to the living. One turn is one game minute.
+
+F5 saves, F9 loads: one slot, `blobber.sav` next to the binary (browser storage on the web). A save holds
+the party, position, script patches and every visited map's grid, props, floor items and monsters.
+When the whole party is down, the last save is loaded; without one the game quits.
 
 ## The opcode lab
 

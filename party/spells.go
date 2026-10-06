@@ -2,7 +2,6 @@ package party
 
 import (
 	"fmt"
-	"strings"
 )
 
 // Spell is one entry in the spell list. Knowing it is c.Has["spell:<ID>"], as scripts already address it.
@@ -20,9 +19,6 @@ var Spells = []Spell{
 	{"fireball", "Fireball", "slow bolt, 14 damage", 6, 200, 14},
 }
 
-// Casters are the classes that can learn spells.
-var Casters = map[string]bool{"sorcerer": true, "cleric": true, "monk": true, "mage": true}
-
 func SpellByID(id string) (Spell, bool) {
 	for _, s := range Spells {
 		if s.ID == id {
@@ -34,7 +30,7 @@ func SpellByID(id string) (Spell, bool) {
 
 func (c *Character) Knows(id string) bool { return c.Has["spell:"+id] }
 
-func (c *Character) CanLearn() bool { return Casters[strings.ToLower(c.Class)] }
+func (c *Character) CanLearn() bool { return c.MaxSP > 0 || ClassOf(c).SP > 0 }
 
 // Learn teaches c spell id (the guild has already been paid).
 func (c *Character) Learn(id string) error {

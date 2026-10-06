@@ -10,12 +10,12 @@ object idol statue -1 -1
 object lever lever_up 9 3
 object lever_pulled lever_down -1 -1
 item amulet 5 5
-item bow 2 2
+item longbow 2 2
 item boots 4 2
 item robe 10 2
 item scroll 12 2
 item helmet 16 2
-item sword 18 2 2
+item orichalcum_katana 18 2 2
 deco lantern 3 2
 deco lantern 9 2
 deco lantern 15 2
