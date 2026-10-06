@@ -85,14 +85,14 @@ var sheets = map[string]*blobber.Sheet{}
 
 var roll = rand.Intn
 
-// god is the debug mode (G): every hit kills, no monster hits, and the party is invisible.
+// god is the debug mode (G): monster hits do nothing and the party is invisible; damage dealt is normal.
 var god bool
 
 func toggleGod() {
 	god = !god
 	blobber.Invisible = god
 	if god {
-		blobber.Message("God mode on: invisible, every blow kills.")
+		blobber.Message("God mode on: invisible and unhurt.")
 	} else {
 		blobber.Message("God mode off.")
 	}
@@ -114,9 +114,6 @@ func (c *console) attack(m blobber.Monster) {
 			dmg = w.Damage + w.Bonus
 		}
 		dmg += ch.Num["might"] / 10
-		if god {
-			dmg = m.HP
-		}
 		blobber.Message(fmt.Sprintf("%s hits the %s for %d", ch.Name, m.Name, dmg))
 		c.PlaySound("hit")
 		if !blobber.HitMonster(m.X, m.Y, dmg) {

@@ -178,7 +178,7 @@ item potion               # one line per copy
 
 The title menu (new game, load, quit) shows at startup and after `win`, `gameover` or a party wipe.
 R rests for eight hours when no monster is in sight: one food per character, full HP and SP.
-G toggles god mode for testing: the party is invisible to monsters and every blow kills.
+G toggles god mode for testing: the party is invisible to monsters and takes no damage.
 
 ## Turns, combat, saving
 
