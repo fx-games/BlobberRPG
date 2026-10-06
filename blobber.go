@@ -339,6 +339,12 @@ func genTextures() {
 	texFront, texRight, texLeft = mats['#'][0], mats['#'][1], mats['#'][2]
 	texFloor = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
 	texCeil = genStone(64, 64, false, [3]float64{70, 66, 72}, [3]float64{40, 38, 42}, 0.4, 1)
+	if t := wallTexture("floor"); t != nil { // painted floor and ceiling, when assets/walls has them
+		texFloor = t
+	}
+	if t := wallTexture("ceiling"); t != nil {
+		texCeil = t
+	}
 	texGrass = genGrass()
 	texLantern = genSolid(color.RGBA{255, 220, 150, 255})
 	texFirefly = genSolid(color.RGBA{200, 255, 180, 255})
