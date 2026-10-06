@@ -673,6 +673,9 @@ var (
 // Sight is how far (in steps) a monster notices the party and chases it.
 var Sight = 8
 
+// Invisible makes monsters ignore the party: they wander and never attack (debug, G key).
+var Invisible bool
+
 // EndTurn passes a turn from outside the engine, e.g. after a spell is cast.
 func EndTurn() { game.endTurn() }
 
@@ -693,6 +696,9 @@ func (g *Game) monstersTurn() {
 		}
 		dx, dy := g.x-a.x, g.y-a.y
 		dist := abs(dx) + abs(dy)
+		if Invisible {
+			dist = Sight + 1
+		}
 		var try [][2]int
 		switch {
 		case dist == 1:

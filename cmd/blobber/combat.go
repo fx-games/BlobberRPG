@@ -85,11 +85,24 @@ var sheets = map[string]*blobber.Sheet{}
 
 var roll = rand.Intn
 
+// god is the debug mode (G): every hit kills, no monster hits, and the party is invisible.
+var god bool
+
+func toggleGod() {
+	god = !god
+	blobber.Invisible = god
+	if god {
+		blobber.Message("God mode on: invisible, every blow kills.")
+	} else {
+		blobber.Message("God mode off.")
+	}
+}
+
 // attack is the party striking m: every living character swings once.
 func (c *console) attack(m blobber.Monster) {
 	k := kindOf(m.Name)
 	for _, ch := range c.Chars {
-		if ch.HP <= 0 {
+		if !ch.CanAct() {
 			continue
 		}
 		if roll(20)+1+ch.Level+ch.Num["acc"]/5 <= k.AC+10 {
@@ -101,6 +114,9 @@ func (c *console) attack(m blobber.Monster) {
 			dmg = w.Damage + w.Bonus
 		}
 		dmg += ch.Num["might"] / 10
+		if god {
+			dmg = m.HP
+		}
 		blobber.Message(fmt.Sprintf("%s hits the %s for %d", ch.Name, m.Name, dmg))
 		c.PlaySound("hit")
 		if !blobber.HitMonster(m.X, m.Y, dmg) {
@@ -111,6 +127,9 @@ func (c *console) attack(m blobber.Monster) {
 
 // defend is monster m striking a random living character.
 func (c *console) defend(m blobber.Monster) {
+	if god {
+		return
+	}
 	var alive []int
 	for i, ch := range c.Chars {
 		if ch.HP > 0 {
@@ -147,11 +166,12 @@ func (c *console) killed(m blobber.Monster) {
 	blobber.Message(fmt.Sprintf("The %s dies. +%d exp, %d gold", m.Name, exp, gold))
 }
 
-// tick is one party turn: a minute passes.
+// tick is one party turn: a minute passes and conditions bite.
 func (c *console) tick() {
 	if c.Minutes++; c.Minutes >= 24*60 {
 		c.Minutes, c.Day = 0, c.Day+1
 	}
+	c.Tick()
 }
 
 // Wiped reports whether nobody is left standing.

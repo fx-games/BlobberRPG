@@ -154,8 +154,11 @@ Monster pictures live in `cmd/blobber/assets/monsters/`: either `<sprite>.png` (
 hurt when wounded and death when killed. Drop a folder there and the editor's monster row shows it.
 | `deco grass\|lantern\|firefly X Y` | Decoration. |
 
-Spells: the Mage Guild (`town guild`) teaches the spells in `party/spells.go` to casters
-(sorcerer, cleric, monk, mage); C opens the spellbook to cast. Knowing a spell is the property
+Spells: the Mage Guild (`town guild`) teaches the spells in `maps/spells.txt` (`id kind sp price
+power | Name | description`; kinds heal, healall, cure, light, bolt, fire) to classes with SP;
+C opens the spellbook to cast. Conditions (`poisoned`, `asleep`, `paralyzed`, `dead`) are set by
+scripts (`give condition poisoned`): poison costs 1 HP a turn, asleep and paralyzed cannot act;
+cure, the temple and rest clear them. Knowing a spell is the property
 the `spell` property with the spell id as its argument, so scripts can test, give and take spells.
 
 In game, F takes floor items first and otherwise runs the tile's `use` event. I opens the inventory.
@@ -167,10 +170,15 @@ In game, F takes floor items first and otherwise runs the tile's `use` event. I 
 ```
 title Blobber Demo
 start demo 1 1 e
+hero Ann f human knight   # up to six, rolled like at the inn
+gold 500
+food 6
+item potion               # one line per copy
 ```
 
 The title menu (new game, load, quit) shows at startup and after `win`, `gameover` or a party wipe.
 R rests for eight hours when no monster is in sight: one food per character, full HP and SP.
+G toggles god mode for testing: the party is invisible to monsters and every blow kills.
 
 ## Turns, combat, saving
 

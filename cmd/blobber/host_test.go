@@ -213,8 +213,11 @@ func TestCombatAndSave(t *testing.T) {
 
 func TestWorldRestAndEnd(t *testing.T) {
 	h := newTestHost(t, "demo", 2, 1)
-	if h.start.m != "demo" || h.start.title != "Blobber Demo" || h.start.dir != 1 {
+	if h.start.m != "demo" || h.start.title != "Blobber Demo" || h.start.dir != 1 || len(h.start.heroes) != 3 || h.start.gold != 500 {
 		t.Fatalf("world: %+v", h.start)
+	}
+	if pt := h.newParty(); len(pt.Chars) != 3 || pt.Chars[0].Name != "Ann" || pt.Chars[0].Class != "knight" || pt.Chars[0].MaxHP < 10 || pt.FindItem("chainmail") == nil {
+		t.Fatalf("default party: %+v", pt.Chars[0])
 	}
 	blobber.ClearMonsters()
 	h.Chars[0].HP, h.Food, h.Day = 3, 1, 1

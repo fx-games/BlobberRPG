@@ -193,3 +193,27 @@ func TestClassesAndInn(t *testing.T) {
 		t.Fatal("hire")
 	}
 }
+
+func TestSpellTableAndConditions(t *testing.T) {
+	old := Spells
+	defer func() { Spells = old }()
+	if err := LoadSpells(strings.NewReader("# c\ncure cure 4 100 0 | Cure | clears\nheal heal 3 60 15 | Heal | x\n")); err != nil || len(Spells) != 2 || Spells[0].Kind != "cure" || Spells[1].Power != 15 || Spells[0].Name != "Cure" {
+		t.Fatalf("%v %+v", err, Spells)
+	}
+	monk := NewCharacter("M", "monk", 10, 10)
+	p := New(monk)
+	monk.Learn("cure")
+	monk.Has["condition:poisoned"] = true
+	p.Tick()
+	if monk.HP != 9 {
+		t.Fatal("poison should bite")
+	}
+	monk.Has["condition:asleep"] = true
+	if _, err := p.Cast(monk, "cure"); monk.CanAct() || err == nil {
+		t.Fatal("asleep cannot act or cast")
+	}
+	monk.Has["condition:asleep"] = false
+	if _, err := p.Cast(monk, "cure"); err != nil || monk.Has["condition:poisoned"] {
+		t.Fatal("cure clears poison")
+	}
+}

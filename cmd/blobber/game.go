@@ -17,12 +17,16 @@ import (
 
 // start is where a new game begins, from maps/world.txt.
 type start struct {
-	title     string
-	m         string
-	x, y, dir int
+	title      string
+	m          string
+	x, y, dir  int
+	heroes     [][4]string // name sex race class
+	gold, food int
+	items      []string
 }
 
-// loadWorld reads maps/world.txt: "title ..." and "start MAP X Y DIR".
+// loadWorld reads maps/world.txt: "title ...", "start MAP X Y DIR", "hero NAME SEX RACE CLASS",
+// "gold N", "food N" and "item ID" lines.
 func loadWorld() start {
 	s := start{title: "Blobber", m: "demo", x: 1, y: 1, dir: 1}
 	f, err := maps.Open("world.txt")
@@ -40,18 +44,30 @@ func loadWorld() start {
 			s.x, _ = strconv.Atoi(fs[2])
 			s.y, _ = strconv.Atoi(fs[3])
 			s.dir = max(0, strings.Index("nesw", strings.ToLower(fs[4])))
+		case len(fs) == 5 && fs[0] == "hero" && len(s.heroes) < party.MaxParty:
+			s.heroes = append(s.heroes, [4]string{fs[1], fs[2], fs[3], fs[4]})
+		case len(fs) == 2 && fs[0] == "gold":
+			s.gold, _ = strconv.Atoi(fs[1])
+		case len(fs) == 2 && fs[0] == "food":
+			s.food, _ = strconv.Atoi(fs[1])
+		case len(fs) == 2 && fs[0] == "item":
+			s.items = append(s.items, fs[1])
 		}
 	}
 	return s
 }
 
-// newParty is the default party a new game starts with.
-// ponytail: fixed heroes; make this a "party" block in world.txt when campaigns differ.
-func newParty() *party.Party {
-	pt := party.New(party.NewCharacter("Ann", "knight", 30, 0), party.NewCharacter("Bob", "monk", 12, 20), party.NewCharacter("Cyd", "robber", 20, 0))
-	pt.Chars[0].Sex = "f"
-	pt.Gold = 500
-	for _, s := range []string{"bronze_dagger", "chainmail", "oak_shield", "helmet", "boots", "ring", "potion", "potion"} {
+// newParty is the default party from world.txt; a world without heroes gets one plain knight.
+func (c *console) newParty() *party.Party {
+	pt := party.New()
+	for _, h := range c.start.heroes {
+		pt.Chars = append(pt.Chars, party.Create(h[0], h[1], h[2], h[3], func(n int) int { return roll(n) + 1 }))
+	}
+	if len(pt.Chars) == 0 {
+		pt.Chars = []*party.Character{party.NewCharacter("Hero", "knight", 20, 0)}
+	}
+	pt.Gold, pt.Food = c.start.gold, c.start.food
+	for _, s := range c.start.items {
 		pt.AddItem(party.NewItem(s, 0))
 	}
 	return pt
@@ -69,7 +85,7 @@ func (c *console) reset(p *party.Party) {
 
 // newGame starts over at the world's start position.
 func (c *console) newGame() {
-	c.reset(newParty())
+	c.reset(c.newParty())
 	w, err := c.enter(c.start.m)
 	if err != nil {
 		blobber.Message(err.Error())
@@ -148,13 +164,14 @@ func (c *console) rest() {
 		return
 	}
 	c.Food -= len(c.Chars)
-	for _, ch := range c.Chars {
-		if ch.HP > 0 {
-			ch.HP, ch.SP = ch.MaxHP, ch.MaxSP
-		}
-	}
 	for range 8 * 60 {
 		c.tick()
+	}
+	for _, ch := range c.Chars {
+		if ch.HP > 0 {
+			ch.Cure()
+			ch.HP, ch.SP = ch.MaxHP, ch.MaxSP
+		}
 	}
 	blobber.Message(fmt.Sprintf("You rest. Day %d, %02d:%02d.", c.Day, c.Minutes/60, c.Minutes%60))
 }

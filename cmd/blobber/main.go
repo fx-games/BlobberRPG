@@ -40,7 +40,9 @@ func loadSheet(name string) (*blobber.Sheet, error) {
 }
 
 func main() {
-	pt := newParty()
+	host := newConsole(party.New())
+	host.reset(host.newParty())
+	pt := host.Party
 	if f, err := maps.Open("npcs.txt"); err == nil {
 		ui.LoadNPCs(f)
 		f.Close()
@@ -51,7 +53,6 @@ func main() {
 			f.Close()
 		}
 	}
-	host := newConsole(pt)
 	w, err := host.enter(host.start.m)
 	if err != nil {
 		log.Fatal(err)
@@ -81,6 +82,7 @@ func main() {
 	}
 	blobber.Keys[ebiten.KeyJ] = func() { blobber.Modal = &ui.Journal{P: pt} }
 	blobber.Keys[ebiten.KeyR] = host.rest
+	blobber.Keys[ebiten.KeyG] = toggleGod
 	blobber.Keys[ebiten.KeyF5] = func() { report(host.saveGame(), "Game saved.") }
 	blobber.Keys[ebiten.KeyF9] = func() { report(host.loadGame(), "Game loaded.") }
 	blobber.Keys[ebiten.KeyI] = func() { blobber.Modal = ui.NewInventory(pt) }
@@ -96,12 +98,12 @@ func main() {
 	pt.OnCast = func(s party.Spell) {
 		sfx.Play("magic")
 		blobber.EndTurn()
-		switch s.ID {
+		switch s.Kind {
 		case "light":
 			blobber.Light(60)
-		case "lightning":
+		case "bolt":
 			blobber.Bolt(s.Power, 14, 0.6, 0.8, 1)
-		case "fireball":
+		case "fire":
 			blobber.Bolt(s.Power, 5, 1, 0.3, 0.1)
 		}
 	}

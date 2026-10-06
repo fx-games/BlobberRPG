@@ -140,6 +140,7 @@ func temple(p *party.Party) []Offer {
 	out := []Offer{{"potion", "Heal the living", missing, func() string {
 		for _, c := range p.Chars {
 			if c.HP > 0 {
+				c.Cure()
 				c.HP, c.SP = c.MaxHP, c.MaxSP
 			}
 		}

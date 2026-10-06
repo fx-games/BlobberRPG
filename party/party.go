@@ -12,6 +12,40 @@ import (
 var Stats = []string{"might", "int", "pers", "end", "spd", "acc", "luck"}
 var Resists = []string{"fire", "elec", "cold", "poison", "energy", "magic"}
 
+// Conditions a character can have ("condition:<name>" in Has). poisoned loses 1 HP a turn,
+// asleep and paralyzed cannot act; cure, the temple and rest clear them. dead is special.
+// ponytail: no diseased/stone/eradicated; add names here and effects in Tick when needed.
+var Conditions = []string{"poisoned", "asleep", "paralyzed", "dead"}
+
+// CanAct is false for the dead, sleeping and paralyzed.
+func (c *Character) CanAct() bool {
+	return c.HP > 0 && !c.Has["condition:dead"] && !c.Has["condition:asleep"] && !c.Has["condition:paralyzed"]
+}
+
+// Cure clears every condition but death.
+func (c *Character) Cure() {
+	for _, k := range Conditions {
+		if k != "dead" {
+			c.Has["condition:"+k] = false
+		}
+	}
+}
+
+// Tick applies one turn of conditions: poison bites, sleep wears off by chance.
+func (p *Party) Tick() {
+	for i, c := range p.Chars {
+		if c.HP <= 0 {
+			continue
+		}
+		if c.Has["condition:poisoned"] {
+			p.Damage(i+1, 1, "poison")
+		}
+		if c.Has["condition:asleep"] && p.Minutes%10 == 0 { // ponytail: wakes within ten turns; a timer per condition when it matters
+			c.Has["condition:asleep"] = false
+		}
+	}
+}
+
 type Character struct {
 	Name, Sex, Race, Class string
 	Portrait               string // id in the portrait pool; "" picks one by class and sex

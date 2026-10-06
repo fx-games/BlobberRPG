@@ -41,7 +41,7 @@ type floorItem struct {
 }
 
 func newConsole(p *party.Party) *console {
-	for name, load := range map[string]func(io.Reader) error{"monsters.txt": loadMonsters, "classes.txt": party.LoadClasses, "races.txt": party.LoadRaces} {
+	for name, load := range map[string]func(io.Reader) error{"monsters.txt": loadMonsters, "classes.txt": party.LoadClasses, "races.txt": party.LoadRaces, "spells.txt": party.LoadSpells} {
 		if f, err := maps.Open(name); err == nil {
 			if err := load(f); err != nil {
 				fmt.Println(" ", err)

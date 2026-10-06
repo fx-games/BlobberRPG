@@ -27,7 +27,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [ ] Item loot on kills (gold only today) and a loot column in `monsters.txt`.
 - [ ] Rest has no random encounters.
 - [ ] Inn creation is a prompt chain: no portrait choice, no re-rolls.
-- [ ] Default party is compiled in (`newParty` in `cmd/blobber/game.go`); move it into `maps/world.txt`.
+- [x] Default party is compiled in (`newParty` in `cmd/blobber/game.go`); move it into `maps/world.txt`.
 - [ ] Opcode lab (`maps/lab`) does not yet show `win`, `gameover`, doors or the inn.
 - [ ] Editor cannot place objects, items or decorations, or edit `world.txt`.
 - [ ] Revert the test monsters: `maps/demo.map` and the cave guardian all use the ice giant.
@@ -56,7 +56,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [~] Monster AI: chase within sight, attack when adjacent, wander otherwise. Pending: pathfinding, ranged, flee.
 - [~] Turn-based play everywhere (decision 1): step / bump-attack / wait = one turn, then monsters act. Casting costs a turn. Pending: block, speed.
 - [~] d20 to-hit vs AC with level and accuracy, weapon damage plus might. Pending: criticals, ranged row.
-- [ ] Conditions: poisoned, diseased, asleep, paralyzed, unconscious, dead, stone, eradicated, cursed, weak, drunk; effects on turns and stats; cure sources (spells, temple, time).
+- [~] Conditions: poisoned, asleep, paralyzed, dead (`party.Conditions`); poison bites per turn, asleep/paralyzed cannot act; cured by the cure spell, temple and rest. Pending: diseased, stone, eradicated, cursed, weak, drunk, monster attacks that inflict them.
 - [~] Experience, gold drop and message strip done. Pending: item loot, scrolling log.
 - [ ] Respawn rule: non-boss monsters return after N days.
 - [x] Party wipe → message, then the title menu.
@@ -73,7 +73,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 ### A4. Spells
 
-- [ ] Full spell table (`spells.txt`): school, level, SP and gem cost, target (self / one / party / one monster / all monsters), power by level, duration.
+- [~] Spell table `maps/spells.txt`: id, kind, SP, price, power. Pending: school, level gating, gem cost, targets, power by level, duration.
 - [ ] Target picker for single-target spells.
 - [ ] Timed buffs (bless, heroism, protection from X, power shield, holy bonus, …) and the `*tmp` stats they set.
 - [ ] Utility spells with world effects: light (done), wizard eye, levitate, water walk, jump, teleport, town portal, Lloyd's beacon, time distortion, etherealize, super shelter, day of protection, day of sorcery, awaken, cure *.
@@ -98,7 +98,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [ ] Terrain types with rules: water (swimmer / water walk), swamp (poison), lava (damage), desert, snow, road, mountains (mountaineer), forest; movement cost or block.
 - [ ] Outdoor maps: sky backdrop, horizon, day/night tint, distant trees/mountains as blocks or billboards.
 - [~] Map screen (M) with explored cells and coordinates, saved per map. Pending: map name, cartographer skill gate.
-- [~] World file (`maps/world.txt`): title, start. Pending: map names, music, indoor/outdoor.
+- [~] World file (`maps/world.txt`): title, start, default party (heroes, gold, food, items). Pending: map names, music, indoor/outdoor.
 
 ### A7. Story, quests, win state
 

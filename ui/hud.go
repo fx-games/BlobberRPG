@@ -95,7 +95,13 @@ func drawCard(d *ebiten.Image, i int, c *party.Character) {
 	d.DrawImage(img, op)
 
 	name := c.Name
-	if dead {
+	for _, k := range party.Conditions {
+		if c.Has["condition:"+k] {
+			name += " - " + k
+			break
+		}
+	}
+	if dead && !c.Has["condition:dead"] {
 		name += " - dead"
 	}
 	Print(d, name, textX, 6, gold)
