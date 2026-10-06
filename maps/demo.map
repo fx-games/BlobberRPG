@@ -13,11 +13,11 @@
 #......#...#...##############
 #############################
 monster ice_giant 20 3
-monster ice_giant 22 8
-monster ice_giant 18 10
+monster red_dragon 22 8
+monster red_dragon 18 10
 monster ice_giant 24 5
 monster ice_giant 3 1
-monster ice_giant 10 7
+monster red_dragon 10 7
 deco grass 10 3
 deco grass 11 4
 deco grass 12 3

@@ -10,3 +10,4 @@ slime     020 10 1 4 10
 ghoul     035 24 6 8 50
 guardian  ice_giant 40 8 10 200
 ice_giant ice_giant 30 6 8 80
+red_dragon red_dragon 60 9 14 300
