@@ -97,6 +97,12 @@ func main() {
 	blobber.Keys[ebiten.KeyC] = func() { blobber.Modal = ui.NewSpellbook(pt) }
 	pt.OnCast = func(s party.Spell) {
 		sfx.Play("magic")
+		if blobber.Fighting() { // a melee round: the round passes the turn and aims the bolts
+			if s.Kind == "light" {
+				blobber.Light(60)
+			}
+			return
+		}
 		blobber.EndTurn()
 		switch s.Kind {
 		case "light":

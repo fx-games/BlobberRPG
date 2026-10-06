@@ -1,6 +1,7 @@
 package blobber
 
 import (
+	"github.com/hajimehoshi/ebiten/v2"
 	"image"
 	"math"
 	"os"
@@ -114,5 +115,27 @@ func TestSheetAnimation(t *testing.T) {
 	g.updateActors(10)
 	if len(actors) != 0 {
 		t.Fatal("death animation should end and remove the actor")
+	}
+}
+
+// A monster walks into the party's cell and holds it there; fleeing lands out of its sight.
+func TestMeleeAndFlee(t *testing.T) {
+	defer SwapPopulation(SwapPopulation(nil))
+	SetMap([]string{"#######", "#.....#", "###.###", "#######"}, 1, 1)
+	defer SetMap(testLevel, 1, 1)
+	SpawnActor("rat", image.NewRGBA(image.Rect(0, 0, 1, 1)), 2, 1, 10)
+	game.monstersTurn()
+	if !Fighting() || len(Melee()) != 1 {
+		t.Fatal("rat should step into the party's cell")
+	}
+	game.act(ebiten.KeyD) // east: blocked in melee
+	if x, y, _ := Pos(); x != 1 || y != 1 {
+		t.Fatal("stepped out of melee")
+	}
+	if !Flee() {
+		t.Fatal("flee failed")
+	}
+	if x, y, _ := Pos(); x != 3 || y != 2 || Fighting() {
+		t.Fatalf("fled to %d,%d, want the alcove 3,2", x, y)
 	}
 }

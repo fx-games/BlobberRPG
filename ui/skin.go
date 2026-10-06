@@ -257,8 +257,8 @@ func Install() {
 
 var winCanvas = ebiten.NewImage(cw*2, ch*2)
 
-// Window draws a framed text window. sel highlights a line (-1 for none). bottom puts it above the HUD,
-// otherwise it is centred.
+// Window draws a framed text window. sel highlights a line (-1 for none). bottom puts it above the HUD
+// (top left during melee), otherwise it is centred.
 func Window(screen *ebiten.Image, title string, lines []string, sel int, bottom bool) {
 	w := font.Width(title) + 120
 	for _, l := range lines {
@@ -285,7 +285,10 @@ func Window(screen *ebiten.Image, title string, lines []string, sel int, bottom 
 		Print(d, l, 24, y, light)
 	}
 	x, y := (blobber.W-w*k)/2, (blobber.H-h*k)/2
-	if bottom {
+	switch {
+	case bottom && blobber.Fighting(): // combat menus sit top left, clear of the monster in front
+		x, y = 8, 24
+	case bottom:
 		y = blobber.H - (cardH+8)*k - h*k
 	}
 	op := &ebiten.DrawImageOptions{}

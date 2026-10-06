@@ -446,9 +446,27 @@ func HitMonster(x, y, dmg int) bool {
 	if a == nil {
 		return false
 	}
+	hit(a, dmg)
+	return true
+}
+
+// HitMelee deals dmg to the i-th monster of Melee().
+func HitMelee(i, dmg int) {
+	for _, a := range actors {
+		if a.x == game.x && a.y == game.y && !a.dying {
+			if i == 0 {
+				hit(a, dmg)
+				return
+			}
+			i--
+		}
+	}
+}
+
+func hit(a *Actor, dmg int) {
 	if a.hp -= dmg; a.hp > 0 {
 		a.play("hurt")
-		return true
+		return
 	}
 	if OnKill != nil {
 		OnKill(a.state())
@@ -456,14 +474,14 @@ func HitMonster(x, y, dmg int) bool {
 	if a.sheet != nil && a.sheet.Anims["death"] != nil { // plays out, then updateActors drops it
 		a.dying = true
 		a.play("death")
-		return true
+		return
 	}
 	for i, b := range actors {
 		if b == a {
 			actors = append(actors[:i], actors[i+1:]...)
 		}
 	}
-	return true
+	return
 }
 
 // MonsterAt names the monster standing in cell (x, y), or "".
@@ -661,14 +679,92 @@ func (g *Game) updateActors(dt float64) {
 	actors = live
 }
 
-// Turn hooks. OnTurn runs after every party action that costs a turn (step, attack, wait), before the
-// monsters move. OnAttack is a monster adjacent to the party striking it. OnBump is the party walking
-// into a monster: the host resolves the party's attack (HitMonster) and the step is not taken.
+// Turn hooks. OnTurn runs after every party action that costs a turn (step, wait, combat round), before
+// the monsters move. OnMelee runs after the monsters moved whenever one shares the party's cell: the
+// host then plays a combat round and calls EndTurn when it is over. Monsters only fight in melee.
 var (
-	OnTurn   func()
-	OnAttack func(m Monster)
-	OnBump   func(m Monster)
+	OnTurn  func()
+	OnMelee func()
 )
+
+// Fighting reports whether a monster shares the party's cell (melee: no stepping, turning is fine).
+func Fighting() bool { return game != nil && actorAt(game.x, game.y) != nil }
+
+// Melee lists the monsters sharing the party's cell.
+func Melee() []Monster {
+	var out []Monster
+	for _, a := range actors {
+		if a.x == game.x && a.y == game.y && !a.dying {
+			out = append(out, a.state())
+		}
+	}
+	return out
+}
+
+// Flee moves the party to a random cell, nearest first, that no monster can see; false if there is none.
+func Flee() bool {
+	g := game
+	from := [2]int{g.x, g.y}
+	dist := map[[2]int]int{from: 0}
+	var best [][2]int
+	for q := [][2]int{from}; len(q) > 0; q = q[1:] { // BFS over open floor
+		c := q[0]
+		if len(best) > 0 && dist[c] > dist[best[0]] {
+			break
+		}
+		if c != from && actorAt(c[0], c[1]) == nil && !seenByMonster(c[0], c[1]) {
+			best = append(best, c)
+		}
+		for _, d := range dirs {
+			n := [2]int{c[0] + d[0], c[1] + d[1]}
+			if _, ok := dist[n]; !ok && !wall(n[0], n[1]) && Cell(n[0], n[1]) != 0 {
+				dist[n] = dist[c] + 1
+				q = append(q, n)
+			}
+		}
+	}
+	if len(best) == 0 {
+		return false
+	}
+	c := best[rng.Intn(len(best))]
+	SetMap(level, c[0], c[1])
+	return true
+}
+
+// seenByMonster reports whether any monster has a straight, wall-free line to cell (x, y): every cell
+// the segment between the two cell centres touches is open (a corner touch counts as both neighbours).
+func seenByMonster(x, y int) bool {
+	for _, a := range actors {
+		if !a.dying && lineClear(a.x, a.y, x, y) {
+			return true
+		}
+	}
+	return false
+}
+
+// lineClear walks the grid cells along the centre-to-centre segment (supercover line).
+func lineClear(x0, y0, x1, y1 int) bool {
+	dx, dy := abs(x1-x0), abs(y1-y0)
+	sx, sy := sgn(x1-x0), sgn(y1-y0)
+	x, y := x0, y0
+	for ix, iy := 0, 0; ix < dx || iy < dy; {
+		switch d := (1+2*ix)*dy - (1+2*iy)*dx; {
+		case d == 0: // through a corner: both side cells must be open
+			if wall(x+sx, y) || wall(x, y+sy) {
+				return false
+			}
+			x, y, ix, iy = x+sx, y+sy, ix+1, iy+1
+		case d < 0:
+			x, ix = x+sx, ix+1
+		default:
+			y, iy = y+sy, iy+1
+		}
+		if wall(x, y) {
+			return false
+		}
+	}
+	return true
+}
 
 // Sight is how far (in steps) a monster notices the party and chases it.
 var Sight = 8
@@ -685,9 +781,12 @@ func (g *Game) endTurn() {
 		OnTurn()
 	}
 	g.monstersTurn()
+	if OnMelee != nil && Fighting() {
+		OnMelee()
+	}
 }
 
-// monstersTurn: adjacent monsters attack, near ones step towards the party, the rest wander.
+// monstersTurn: monsters in melee stay, near ones step towards (and into) the party's cell, the rest wander.
 // ponytail: greedy chase, no pathfinding; monsters stall behind a corner. BFS when that shows.
 func (g *Game) monstersTurn() {
 	for _, a := range actors {
@@ -701,11 +800,8 @@ func (g *Game) monstersTurn() {
 		}
 		var try [][2]int
 		switch {
-		case dist == 1:
+		case dist == 0: // in melee: it strikes during the host's round
 			a.play("attack")
-			if OnAttack != nil {
-				OnAttack(a.state())
-			}
 			continue
 		case dist <= Sight:
 			sx, sy := sgn(dx), sgn(dy)
@@ -718,7 +814,7 @@ func (g *Game) monstersTurn() {
 		}
 		for _, d := range try {
 			nx, ny := a.x+d[0], a.y+d[1]
-			if d == [2]int{} || wall(nx, ny) || (nx == g.x && ny == g.y) || actorAt(nx, ny) != nil {
+			if d == [2]int{} || wall(nx, ny) || (actorAt(nx, ny) != nil && (nx != g.x || ny != g.y)) {
 				continue
 			}
 			a.fx, a.fz, a.x, a.y, a.t = a.tx, a.tz, nx, ny, 0
@@ -799,13 +895,8 @@ func (g *Game) act(k ebiten.Key) {
 	f, r := dirs[g.dir], dirs[(g.dir+1)%4]
 	step := func(dx, dy int, sway float64) {
 		nx, ny := g.x+dx, g.y+dy
-		switch a := actorAt(nx, ny); {
-		case wall(nx, ny):
-		case a != nil: // attack instead of stepping
-			if OnBump != nil {
-				OnBump(a.state())
-			}
-			g.endTurn()
+		switch {
+		case wall(nx, ny), Fighting(): // no stepping out of melee
 		default:
 			g.startMove(nx, ny, g.dir, sway)
 			g.endTurn()
@@ -858,6 +949,13 @@ func (g *Game) Update() error {
 		return nil
 	}
 	if prompt != nil {
+		if Fighting() { // a combat round is asking: turning is still allowed
+			for _, k := range []ebiten.Key{ebiten.KeyQ, ebiten.KeyE, ebiten.KeyLeft, ebiten.KeyRight} {
+				if inpututil.IsKeyJustPressed(k) {
+					g.act(k)
+				}
+			}
+		}
 		prompt.update()
 		g.tween()
 		return nil
@@ -882,7 +980,7 @@ func (g *Game) Update() error {
 			return ebiten.Termination
 		}
 	} else {
-		if inpututil.IsKeyJustPressed(ebiten.KeySpace) && !g.moving { // wait a turn
+		if inpututil.IsKeyJustPressed(ebiten.KeySpace) && !g.moving && !Fighting() { // wait a turn
 			g.endTurn()
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyF) && !g.moving && OnUse != nil {
@@ -1201,6 +1299,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		ax, az := a.pos()
 		if _, ok := visibleCells(c)[[2]int{int(math.Floor(ax)), int(math.Floor(az))}]; !ok {
 			continue
+		}
+		if a.x == g.x && a.y == g.y { // in melee: right in front of us, whichever way we face
+			ax, az = g.tx+c.fwx*0.45, g.tz+c.fwz*0.45
 		}
 		ax, az = ax-c.fwx*eyeBack, az-c.fwz*eyeBack // mirror the eye: we stand at the back of our cell, the monster at the front of its, facing us
 		img := a.img()

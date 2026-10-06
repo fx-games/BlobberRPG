@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -17,11 +19,12 @@ import (
 type kind struct {
 	Sprite           string
 	HP, AC, Dmg, Exp int
+	Spd              int
 }
 
 var kinds = map[string]kind{}
 
-// loadMonsters reads "id sprite hp ac dmg exp" lines; # starts a comment.
+// loadMonsters reads "id sprite hp ac dmg exp [spd]" lines (spd defaults to 10); # starts a comment.
 func loadMonsters(r io.Reader) error {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
@@ -29,14 +32,14 @@ func loadMonsters(r io.Reader) error {
 		if len(f) == 0 {
 			continue
 		}
-		if len(f) != 6 {
-			return fmt.Errorf("monsters.txt: %q: want id sprite hp ac dmg exp", sc.Text())
+		if len(f) != 6 && len(f) != 7 {
+			return fmt.Errorf("monsters.txt: %q: want id sprite hp ac dmg exp [spd]", sc.Text())
 		}
-		var n [4]int
-		for i := range n {
+		n := [5]int{4: 10}
+		for i := range f[2:] {
 			n[i], _ = strconv.Atoi(f[2+i])
 		}
-		kinds[f[0]] = kind{f[1], n[0], n[1], n[2], n[3]}
+		kinds[f[0]] = kind{f[1], n[0], n[1], n[2], n[3], n[4]}
 	}
 	return sc.Err()
 }
@@ -46,7 +49,7 @@ func kindOf(id string) kind {
 	if k, ok := kinds[id]; ok {
 		return k
 	}
-	return kind{id, 10, 3, 3, 5}
+	return kind{id, 10, 3, 3, 5, 10}
 }
 
 // spawn places monster id at (x, y) with hp hit points (hp < 0 = full).
@@ -81,7 +84,8 @@ func (c *console) spawn(id string, x, y, hp int) error {
 var sheets = map[string]*blobber.Sheet{}
 
 // ---------- turn-based rules ----------
-// ponytail: d20 rolls against AC, one attack per character and monster, no criticals, no ranged row.
+// ponytail: d20 rolls against AC, melee only (monsters sharing the party's cell), everyone strikes the
+// first monster in the cell, no criticals, no spells in a round. Target choice when groups get mixed.
 
 var roll = rand.Intn
 
@@ -98,28 +102,166 @@ func toggleGod() {
 	}
 }
 
-// attack is the party striking m: every living character swings once.
-func (c *console) attack(m blobber.Monster) {
-	k := kindOf(m.Name)
+// melee plays one combat round: everyone in the fight acts once, fastest first; each character's
+// action is asked for on their turn. When the round is over a turn passes (EndTurn), which starts the
+// next round while monsters remain.
+func (c *console) melee() {
+	type turn struct {
+		ch  *party.Character
+		mon string
+		spd int
+	}
+	var order []turn
 	for _, ch := range c.Chars {
-		if !ch.CanAct() {
-			continue
+		order = append(order, turn{ch: ch, spd: ch.Num["spd"] + ch.Num["spdtmp"]})
+	}
+	for _, m := range blobber.Melee() {
+		order = append(order, turn{mon: m.Name, spd: kindOf(m.Name).Spd})
+	}
+	sort.SliceStable(order, func(i, j int) bool { return order[i].spd > order[j].spd })
+	clear(blocking)
+	var next func(i int)
+	next = func(i int) {
+		for ; i < len(order) && !c.Wiped(); i++ {
+			ms := blobber.Melee()
+			if len(ms) == 0 {
+				break
+			}
+			if t := order[i]; t.ch == nil {
+				if slices.ContainsFunc(ms, func(m blobber.Monster) bool { return m.Name == t.mon }) {
+					c.defend(blobber.Monster{Name: t.mon})
+				}
+				continue
+			}
+			if ch := order[i].ch; ch.CanAct() {
+				c.choose(ch, func() { next(i + 1) })
+				return
+			}
 		}
-		if roll(20)+1+ch.Level+ch.Num["acc"]/5 <= k.AC+10 {
-			blobber.Message(ch.Name + " misses the " + m.Name)
-			continue
-		}
-		dmg := 2 // fists
-		if w := ch.Equipped[party.RightHand]; w != nil {
-			dmg = w.Damage + w.Bonus
-		}
-		dmg += ch.Num["might"] / 10
-		blobber.Message(fmt.Sprintf("%s hits the %s for %d", ch.Name, m.Name, dmg))
-		c.PlaySound("hit")
-		if !blobber.HitMonster(m.X, m.Y, dmg) {
-			return // dead
+		if !c.Wiped() {
+			blobber.EndTurn()
 		}
 	}
+	next(0)
+}
+
+// blocking holds the characters that chose Block this round: monsters hit them less often.
+var blocking = map[*party.Character]bool{}
+
+// choose asks ch for a round action and calls done once it is taken (flee ends the round itself).
+func (c *console) choose(ch *party.Character, done func()) {
+	again := func() { c.choose(ch, done) }
+	blobber.ShowPrompt([]string{ch.Name + "'s turn:", "  1  Attack", "  2  Block", "  3  Cast", "  4  Flee"}, false, func(a string) {
+		switch a {
+		case "1":
+			c.target(again, func(i int, m blobber.Monster) { c.swing(ch, i, m); done() })
+		case "2":
+			blocking[ch] = true
+			blobber.Message(ch.Name + " blocks")
+			done()
+		case "3":
+			c.castIn(ch, again, done)
+		case "4":
+			c.flee()
+		default:
+			again()
+		}
+	})
+}
+
+// target picks a monster in the party's cell (asking only when there are several); Esc calls back.
+func (c *console) target(back func(), on func(int, blobber.Monster)) {
+	ms := blobber.Melee()
+	if len(ms) == 1 {
+		on(0, ms[0])
+		return
+	}
+	lines := []string{"Which one?"}
+	for i, m := range ms[:min(9, len(ms))] {
+		lines = append(lines, fmt.Sprintf("  %d  %s (%d HP)", i+1, m.Name, m.HP))
+	}
+	blobber.ShowPrompt(lines, false, func(a string) {
+		if i := digit(a) - 1; i >= 0 && i < len(lines)-1 {
+			on(i, ms[i])
+			return
+		}
+		back()
+	})
+}
+
+// castIn lets ch cast a known spell in melee; bolts strike a chosen monster in the cell.
+func (c *console) castIn(ch *party.Character, back, done func()) {
+	var known []party.Spell
+	lines := []string{ch.Name + " casts:"}
+	for _, s := range party.Spells {
+		if ch.Knows(s.ID) && len(known) < 9 {
+			known = append(known, s)
+			lines = append(lines, fmt.Sprintf("  %d  %s (%d SP)", len(known), s.Name, s.SP))
+		}
+	}
+	if len(known) == 0 {
+		blobber.Message(ch.Name + " knows no spells")
+		back()
+		return
+	}
+	blobber.ShowPrompt(lines, false, func(a string) {
+		i := digit(a) - 1
+		if i < 0 || i >= len(known) {
+			back()
+			return
+		}
+		s := known[i]
+		cast := func(t int) {
+			msg, err := c.Cast(ch, s.ID)
+			if err != nil {
+				blobber.Message(err.Error())
+				back()
+				return
+			}
+			blobber.Message(msg)
+			if t >= 0 {
+				blobber.HitMelee(t, s.Power)
+			}
+			done()
+		}
+		if s.Kind == "bolt" || s.Kind == "fire" {
+			c.target(back, func(t int, _ blobber.Monster) { cast(t) })
+			return
+		}
+		cast(-1)
+	})
+}
+
+// flee leaves the fight for a spot no monster can see; the unconscious are left behind, dead.
+func (c *console) flee() {
+	if !blobber.Flee() {
+		blobber.Message("There is nowhere to run!")
+		blobber.EndTurn()
+		return
+	}
+	for _, ch := range c.Chars {
+		if ch.HP <= 0 {
+			ch.Has["condition:dead"] = true
+		}
+	}
+	blobber.Message("You flee!")
+	blobber.EndTurn()
+}
+
+// swing is ch striking m, the i-th monster in melee, once.
+func (c *console) swing(ch *party.Character, i int, m blobber.Monster) {
+	if roll(20)+1+ch.Level+ch.Num["acc"]/5 <= kindOf(m.Name).AC+10 {
+		blobber.Message(ch.Name + " misses the " + m.Name)
+		return
+	}
+	dmg := 2 // fists
+	if w := ch.Equipped[party.RightHand]; w != nil {
+		dmg = w.Damage + w.Bonus
+	}
+	dmg += ch.Num["might"] / 10
+	blobber.Message(fmt.Sprintf("%s hits the %s for %d", ch.Name, m.Name, dmg))
+	c.PlaySound("hit")
+	blobber.HitMelee(i, dmg)
 }
 
 // defend is monster m striking a random living character.
@@ -138,7 +280,11 @@ func (c *console) defend(m blobber.Monster) {
 	}
 	who := alive[roll(len(alive))]
 	ch := c.Chars[who-1]
-	if roll(20)+1 <= ch.AC+5 {
+	ac := ch.AC + 5
+	if blocking[ch] {
+		ac += 4
+	}
+	if roll(20)+1 <= ac {
 		blobber.Message("The " + m.Name + " misses " + ch.Name)
 		return
 	}
@@ -183,8 +329,7 @@ func (c *console) Wiped() bool {
 
 // installCombat wires the engine's turn hooks to the rules above.
 func (c *console) installCombat() {
-	blobber.OnBump = c.attack
-	blobber.OnAttack = c.defend
+	blobber.OnMelee = c.melee
 	blobber.OnKill = c.killed
 	blobber.OnTurn = c.tick
 }

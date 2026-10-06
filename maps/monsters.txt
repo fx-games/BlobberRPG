@@ -1,4 +1,4 @@
-# Monster table: id sprite hp ac dmg exp
+# Monster table: id sprite hp ac dmg exp [spd]  (spd: combat order, default 10)
 # id is what .map "monster" lines and the spawn opcode name; sprite is a debug sprite name or
 # cmd/blobber/assets/monsters/<sprite>.png. dmg is the top of a 1..dmg roll per hit.
 # ponytail: one attack, no resistances, no special attacks; add columns when a monster needs them.

@@ -167,21 +167,21 @@ func TestNPCRegistry(t *testing.T) {
 	}
 }
 
-// A bump kills a wounded rat with a sure roll; the monster's turn wounds the party; a save round-trips all of it.
+// A swing kills a wounded rat with a sure roll; the monster's turn wounds the party; a save round-trips all of it.
 func TestCombatAndSave(t *testing.T) {
 	h := newTestHost(t, "demo", 2, 1)
 	h.installCombat()
-	defer func() { blobber.OnBump, blobber.OnAttack, blobber.OnKill, blobber.OnTurn = nil, nil, nil, nil }()
+	defer func() { blobber.OnMelee, blobber.OnKill, blobber.OnTurn = nil, nil, nil }()
 	roll = func(n int) int { return n - 1 } // always the top roll
 	defer func() { roll = rand.Intn }()
-	kinds["rat"] = kind{"001", 6, 2, 3, 5}
+	kinds["rat"] = kind{"001", 6, 2, 3, 5, 10}
 	blobber.ClearMonsters()
-	h.spawn("rat", 3, 1, 2)
+	h.spawn("rat", 2, 1, 2) // in the party's cell: melee
 	h.AddItem(party.NewItem("steel_sword", 0))
 	h.Equip(h.Chars[0], h.FindItem("steel_sword"))
-	h.attack(blobber.Monster{Name: "rat", X: 3, Y: 1, HP: 2})
-	if blobber.MonsterAt(3, 1) != "" || h.Chars[0].Exp != 5 {
-		t.Fatalf("rat alive=%q exp=%d", blobber.MonsterAt(3, 1), h.Chars[0].Exp)
+	h.swing(h.Chars[0], 0, blobber.Monster{Name: "rat", X: 2, Y: 1, HP: 2})
+	if blobber.MonsterAt(2, 1) != "" || h.Chars[0].Exp != 5 {
+		t.Fatalf("rat alive=%q exp=%d", blobber.MonsterAt(2, 1), h.Chars[0].Exp)
 	}
 	h.spawn("rat", 3, 1, -1)
 	h.defend(blobber.Monster{Name: "rat", X: 3, Y: 1})

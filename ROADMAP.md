@@ -6,7 +6,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 ## Decisions (2026-10-06)
 
-1. **Combat is turn-based, always.** Roguelike rounds: the party takes a turn (step, strafe, attack by walking into a monster, use, cast, wait), then every monster acts. Turning in place is free. There is no real-time mode.
+1. **Combat is turn-based, always.** Roguelike rounds: the party takes a turn (step, strafe, use, cast, wait), then every monster acts. Turning in place is free. A monster entering the party's cell (or the party entering its) starts melee, Might & Magic style: no stepping, turning allowed; each round everyone acts once in speed order and every character picks Attack or Flee. Flee kills the unconscious and drops the party on the nearest random cell no monster can see. There is no real-time mode.
 2. **Dungeons and towns first.** Overworld, terrain and sky only if good assets turn up.
 3. **Our own classes and races**, not the MM3 list. Data tables, curated later.
 4. **Our own spell list**, curated.
@@ -18,7 +18,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 ## Follow-ups (open items from the work so far)
 
-- [ ] Floor texture: drop the floor image as `assets/walls/floor.png` (the upload never reached disk); a ceiling goes in `ceiling.png`.
+- [x] Floor and ceiling textures in `assets/walls/floor.png` and `ceiling.png`.
 - [ ] Licence lines in `CREDITS.md` for the stone wall, the floor and the ice giant sheet.
 - [ ] Monster size per sprite (the ice giant renders at the standard 0.6 tiles); a `size` column in `monsters.txt`.
 - [ ] Monster pathfinding: greedy chase stalls behind corners (`monstersTurn` in `blobber.go`).
@@ -52,9 +52,9 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 ### A2. Combat (nothing exists beyond the bolt)
 
-- [~] Monster data table (`maps/monsters.txt`): id, sprite, HP, AC, damage, exp. Pending: speed, attack kinds, resistances, special attacks, loot class, ranged/caster, boss flag.
-- [~] Monster AI: chase within sight, attack when adjacent, wander otherwise. Pending: pathfinding, ranged, flee.
-- [~] Turn-based play everywhere (decision 1): step / bump-attack / wait = one turn, then monsters act. Casting costs a turn. Pending: block, speed.
+- [~] Monster data table (`maps/monsters.txt`): id, sprite, HP, AC, damage, exp, speed. Pending: attack kinds, resistances, special attacks, loot class, ranged/caster, boss flag.
+- [~] Monster AI: chase within sight, step into the party's cell for melee, wander otherwise. Pending: pathfinding, ranged, flee.
+- [~] Turn-based play everywhere (decision 1): step / wait / melee round = one turn, then monsters act. Casting costs a turn. Melee rounds in speed order with Attack / Flee. Pending: block, spells and target choice in a round.
 - [~] d20 to-hit vs AC with level and accuracy, weapon damage plus might. Pending: criticals, ranged row.
 - [~] Conditions: poisoned, asleep, paralyzed, dead (`party.Conditions`); poison bites per turn, asleep/paralyzed cannot act; cured by the cure spell, temple and rest. Pending: diseased, stone, eradicated, cursed, weak, drunk, monster attacks that inflict them.
 - [~] Experience, gold drop and message strip done. Pending: item loot, scrolling log.
