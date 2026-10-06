@@ -16,6 +16,22 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 8. **Chiptune synth stays** until better sound sources are found.
 9. **The editor must be able to build a complete campaign** (maps, events, world file, data tables).
 
+## Follow-ups (open items from the work so far)
+
+- [ ] Floor texture: drop the floor image as `assets/walls/floor.png` (the upload never reached disk); a ceiling goes in `ceiling.png`.
+- [ ] Licence lines in `CREDITS.md` for the stone wall, the floor and the ice giant sheet.
+- [ ] Monster size per sprite (the ice giant renders at the standard 0.6 tiles); a `size` column in `monsters.txt`.
+- [ ] Monster pathfinding: greedy chase stalls behind corners (`monstersTurn` in `blobber.go`).
+- [ ] Bolt spells fly in real time after the turn passes, so a monster can step out of the way.
+- [ ] Save slots and autosave; currently one slot, `blobber.sav` / localStorage.
+- [ ] Item loot on kills (gold only today) and a loot column in `monsters.txt`.
+- [ ] Rest has no random encounters.
+- [ ] Inn creation is a prompt chain: no portrait choice, no re-rolls.
+- [ ] Default party is compiled in (`newParty` in `cmd/blobber/game.go`); move it into `maps/world.txt`.
+- [ ] Opcode lab (`maps/lab`) does not yet show `win`, `gameover`, doors or the inn.
+- [ ] Editor cannot place objects, items or decorations, or edit `world.txt`.
+- [ ] Revert the test monsters: `maps/demo.map` and the cave guardian all use the ice giant.
+
 ## What exists today
 
 - Grid renderer: five generated wall materials, floor, ceiling, billboards (objects, monsters, decorations), world signs, torch light, dither, minimap.
@@ -32,7 +48,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [x] Serialize party (characters, inventory, equipped, gold/gems/food/bank, flags, time).
 - [x] Serialize world: position, facing, current map, VM patches, per-map cell changes, moved objects, taken floor items, monster state.
 - [~] One slot (F5 / F9); file on desktop, browser storage on web. Slots and autosave pending.
-- [ ] Load on title screen / menu; quick save & load keys.
+- [x] Load from the title menu; F5 / F9 quick save and load.
 
 ### A2. Combat (nothing exists beyond the bolt)
 
@@ -75,13 +91,13 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 ### A6. World and time
 
-- [~] Game clock: one minute per turn, day rollover. Pending: rest, shop time, day/night.
+- [~] Game clock: one minute per turn, rest adds eight hours, day rollover. Pending: shop time, day/night.
 - [~] Rest (R): full heal for one food each, refused near monsters. Pending: random encounters.
 - [~] Doors: `D` is an open doorway drawn as a door, `L` a locked one that scripts open with `altercell X Y D`. Pending: bash, traps, secret doors.
 - [ ] Wall decorations: torches, grates, signs, stairs, cave mouths, town entrances.
 - [ ] Terrain types with rules: water (swimmer / water walk), swamp (poison), lava (damage), desert, snow, road, mountains (mountaineer), forest; movement cost or block.
 - [ ] Outdoor maps: sky backdrop, horizon, day/night tint, distant trees/mountains as blocks or billboards.
-- [ ] Full map screen with explored cells (cartographer skill), map name, coordinates.
+- [~] Map screen (M) with explored cells and coordinates, saved per map. Pending: map name, cartographer skill gate.
 - [~] World file (`maps/world.txt`): title, start. Pending: map names, music, indoor/outdoor.
 
 ### A7. Story, quests, win state
@@ -113,7 +129,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [ ] Message log (scrollable history of event and combat text).
 - [ ] Options screen: volume, key bindings, movement speed, dither, fullscreen (partly in the Esc menu).
 - [x] Animated monsters from sprite sheets (idle / attack / hurt / death); see op-codes.md.
-- [ ] Wall texture sets per map (cave, castle, crypt, sewer, …) loaded from PNG, replacing generated stone.
+- [~] Painted textures from `assets/walls/` (stone wall done; `floor.png` and `ceiling.png` picked up when present). Pending: sets per map.
 - [ ] Smooth day/night lighting outdoors; weather is optional.
 - [ ] Quest markers on the map screen for known quest tiles (optional, not in the originals).
 - [ ] Portrait expressions by condition (poisoned, asleep, dead) or at least condition icons on the HUD.
@@ -122,7 +138,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 - [~] Editor: monster palette from the asset folder, door cells in the wall palette. Pending: objects, items, decorations.
 - [ ] Editor: world file editing (map list, start, music), NPC registry, cutscene preview.
-- [ ] Data tables as text files in `maps/` or `data/`: monsters, items, armor, spells, classes, races, skills, awards, rumors. Today spells, the item catalog, rumors and the trainer formula are Go code.
+- [~] Data tables in `maps/`: monsters, classes, races, awards, rumors, world. Pending: spells, items, armor, skills (still Go code).
 - [ ] Opcode lab kept in sync with new opcodes (`win`, doors, terrain).
 - [ ] A `blobber check` command that lints a campaign: missing sprites, unknown items/monsters/spells, bad jumps, unreachable maps.
 
