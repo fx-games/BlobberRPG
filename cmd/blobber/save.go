@@ -24,6 +24,7 @@ type savedWorld struct {
 	Objects  map[string][2]int
 	Floor    []floorItem
 	Monsters []blobber.Monster
+	Seen     [][2]int
 }
 
 func (c *console) saveGame() error {
@@ -35,7 +36,7 @@ func (c *console) saveGame() error {
 		if name == c.m {
 			pop = blobber.Live()
 		}
-		sw := &savedWorld{Grid: w.lvl, Objects: map[string][2]int{}, Floor: w.floor, Monsters: pop.Monsters()}
+		sw := &savedWorld{Grid: w.lvl, Objects: map[string][2]int{}, Floor: w.floor, Monsters: pop.Monsters(), Seen: pop.Seen()}
 		for n, o := range w.objs {
 			sw.Objects[n] = [2]int{o.X, o.Y}
 		}
@@ -83,6 +84,7 @@ func (c *console) loadGame() error {
 		for _, m := range sw.Monsters {
 			c.spawn(m.Name, m.X, m.Y, m.HP)
 		}
+		blobber.MarkSeen(sw.Seen)
 		w.pop, c.m = blobber.SwapPopulation(nil), "" // park it; enter(s.Map) below brings the right one back
 	}
 	c.vm.ApplyPatches(s.Patches)

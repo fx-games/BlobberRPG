@@ -568,15 +568,35 @@ func (p *Population) Monsters() []Monster {
 }
 
 // Live is the current map's population (not swapped out).
-func Live() *Population { return &Population{actors, ents} }
+func Live() *Population { return &Population{actors, ents, seen} }
 
 // ClearMonsters removes every monster from the current map; decorations stay.
 func ClearMonsters() { actors = nil }
 
-// Population is the set of monsters and decorations of one map.
+// Population is the set of monsters and decorations of one map, and the cells the party has seen.
 type Population struct {
 	actors []*Actor
 	ents   []*ent
+	seen   map[[2]int]bool
+}
+
+var seen = map[[2]int]bool{}
+
+// Seen lists the cells of the population's map the party has seen, for saving.
+func (p *Population) Seen() [][2]int {
+	var out [][2]int
+	for c := range p.seen {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i][1] < out[j][1] || out[i][1] == out[j][1] && out[i][0] < out[j][0] })
+	return out
+}
+
+// MarkSeen restores seen cells after a load.
+func MarkSeen(cells [][2]int) {
+	for _, c := range cells {
+		seen[c] = true
+	}
 }
 
 // Len counts monsters and decorations.
@@ -585,11 +605,14 @@ func (p *Population) Len() int { return len(p.actors) + len(p.ents) }
 // SwapPopulation makes next the live population and returns the previous one (nil next = empty).
 // Hosts keep one per map so monsters and decorations stay where they belong across teleports.
 func SwapPopulation(next *Population) *Population {
-	prev := &Population{actors, ents}
+	prev := &Population{actors, ents, seen}
 	if next == nil {
-		next = &Population{}
+		next = &Population{seen: map[[2]int]bool{}}
 	}
-	actors, ents = next.actors, next.ents
+	if next.seen == nil {
+		next.seen = map[[2]int]bool{}
+	}
+	actors, ents, seen = next.actors, next.ents, next.seen
 	return prev
 }
 
@@ -722,6 +745,7 @@ type Game struct {
 	time                   float64
 	// settings
 	dither, smooth, menu, atlasView, help bool
+	mapView                               bool
 	debug                                 bool
 	torch                                 float64
 	sel                                   int
@@ -797,6 +821,16 @@ func (g *Game) Update() error {
 	g.updateActors(1.0 / 60)
 	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
 		g.atlasView = !g.atlasView
+	}
+	if g.mapView { // the map screen: any of M, Esc or a click closes it
+		if inpututil.IsKeyJustPressed(ebiten.KeyM) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			g.mapView = false
+		}
+		return nil
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyM) && prompt == nil && Modal == nil && !g.help {
+		g.mapView = true
+		return nil
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyP) {
 		g.debug = !g.debug
@@ -1076,6 +1110,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		return
 	}
 	c := g.camera()
+	for cell := range visibleCells(c) {
+		seen[cell] = true
+		for _, d := range dirs { // and the walls around it
+			seen[[2]int{cell[0] + d[0], cell[1] + d[1]}] = true
+		}
+	}
+	if g.mapView {
+		g.drawMap(screen, c)
+		return
+	}
 	dst := screen
 	if g.dither {
 		dst = g.scene
@@ -1212,6 +1256,44 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
+// drawMap is the full map screen (M): every seen cell of the level, walls light, floor dark, the party as an arrow.
+func (g *Game) drawMap(screen *ebiten.Image, c cam) {
+	screen.Fill(color.RGBA{20, 18, 24, 255})
+	rows, cols := len(level), 0
+	for _, r := range level {
+		cols = max(cols, len(r))
+	}
+	cs := float32(min(W/(cols+2), H/(rows+4)))
+	ox, oy := (float32(W)-cs*float32(cols))/2, (float32(H)-cs*float32(rows))/2
+	for y := range rows {
+		for x := range cols {
+			if !seen[[2]int{x, y}] {
+				continue
+			}
+			col := color.RGBA{50, 48, 55, 255}
+			if wall(x, y) {
+				col = color.RGBA{170, 160, 150, 255}
+			}
+			vector.DrawFilledRect(screen, ox+cs*float32(x), oy+cs*float32(y), cs-1, cs-1, col, false)
+		}
+	}
+	if TileMarks != nil {
+		for t, bits := range TileMarks() {
+			if seen[t] && bits&2 != 0 {
+				vector.DrawFilledCircle(screen, ox+cs*(float32(t[0])+0.5), oy+cs*(float32(t[1])+0.5), cs/4, color.RGBA{80, 200, 255, 255}, true)
+			}
+		}
+	}
+	px, py := ox+cs*float32(c.x), oy+cs*float32(c.z)
+	fx, fy := float32(c.fwx)*cs/2, float32(c.fwz)*cs/2
+	rx, ry := float32(c.rtx)*cs*0.3, float32(c.rtz)*cs*0.3
+	yellow := color.RGBA{255, 220, 60, 255}
+	vector.StrokeLine(screen, px-fx, py-fy, px+fx, py+fy, cs/4, yellow, true)
+	vector.StrokeLine(screen, px+fx, py+fy, px-rx, py-ry, cs/4, yellow, true)
+	vector.StrokeLine(screen, px+fx, py+fy, px+rx, py+ry, cs/4, yellow, true)
+	font.Print(screen, fmt.Sprintf("Map  %d,%d   M or Esc closes", g.x, g.y), 4, 0)
+}
+
 // BLOBBER_SHOT=file.png saves the 30th frame and quits: a way to check the look without a person at the keys.
 var shotFrames int
 
@@ -1282,7 +1364,7 @@ func (g *Game) drawMinimap(screen *ebiten.Image, c cam) {
 	}
 	for y := g.y - r; y <= g.y+r; y++ {
 		for x := g.x - r; x <= g.x+r; x++ {
-			if wall(x, y) {
+			if wall(x, y) && seen[[2]int{x, y}] {
 				vector.DrawFilledRect(screen, ox+cs*float32(x-g.x+r), oy+cs*float32(y-g.y+r), cs, cs, color.RGBA{170, 160, 150, 255}, false)
 			}
 		}
