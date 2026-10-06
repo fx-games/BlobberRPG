@@ -39,3 +39,6 @@ deco firefly 25 9
 deco firefly 24 3
 item helmet 5 1
 item iron_shield 13 7
+monster electrical_centipede 8 11
+monster electrical_centipede 14 7
+monster electrical_centipede 1 12

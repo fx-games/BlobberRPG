@@ -68,6 +68,7 @@ func main() {
 		}
 		return l
 	}
+	blobber.OnTeleportMenu = host.teleportMenu
 	blobber.OnMove = func(x, y, dir int) {
 		blobber.ClearSign()
 		pump(host.vm, host.vm.Trigger(host.m, x, y, events.Facing(dir)))

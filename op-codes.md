@@ -146,12 +146,12 @@ Extra lines in a `.map` file, after the grid:
 |------|---------|
 | `object NAME SPRITE X Y` | A named billboard. `moveobj`, `movewall` and `exchobj` act on it. Put it at -1 -1 to hide it. |
 | `item BASE X Y [BONUS]` | An item hidden on the tile, never drawn (as in World of Xeen). F finds and takes it. |
-| `monster ID X Y` | A monster from `maps/monsters.txt` (`id sprite hp ac dmg exp`). Unknown ids are drawn with a sprite of their own name and get stock stats. |
+| `monster ID X Y` | A monster from `maps/monsters.txt` (`id sprite hp ac dmg exp [spd [size]]`). Unknown ids are drawn with a sprite of their own name and get stock stats. |
 
 Monster pictures live in `cmd/blobber/assets/monsters/`: either `<sprite>.png` (a still) or a folder
-`<sprite>/` holding `sheet.png` and `manifest.json` (an `animation` block with the cell size and the
-`idle`, `attack`, `hurt` and `death` rows). Sheets play idle in a loop, attack when the monster strikes,
-hurt when wounded and death when killed. Drop a folder there and the editor's monster row shows it.
+`<sprite>/` holding `idle.png` and optionally `attack.png` and `hurt.png` (transparent PNGs, one pose
+each). Attack shows when the monster strikes and hurt when it is wounded, each for a moment before idle
+returns; a killed monster shows hurt, then vanishes. Drop a folder there and the editor's monster row shows it.
 | `deco grass\|lantern\|firefly X Y` | Decoration. |
 
 Spells: the Mage Guild (`town guild`) teaches the spells in `maps/spells.txt` (`id kind sp price

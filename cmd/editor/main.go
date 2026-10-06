@@ -4,8 +4,9 @@
 //
 // Mouse: left paints the palette material, right selects a tile for events, click a palette swatch
 // to choose a material, click a monster thumbnail then a tile to place (or remove) that monster,
-// click a keyword to insert its template into the script, click in the script to edit it.
-// Monsters come from cmd/blobber/assets/monsters: every <name>.png and every <name>/ sheet folder. Keys: Ctrl+S save, N new event on the selected tile, F cycle facing, U toggle use,
+// click a floor (F) or ceiling (C) swatch to give the map that texture, click a keyword to insert its
+// template into the script, click in the script to edit it.
+// Monsters are the ids in maps/monsters.txt plus any unlisted picture in cmd/blobber/assets/monsters. Keys: Ctrl+S save, N new event on the selected tile, F cycle facing, U toggle use,
 // Delete remove event, Tab next event, Shift+Arrows grow the map, Ctrl+Shift+Arrows shrink it.
 package main
 
@@ -57,47 +58,101 @@ type event struct {
 }
 
 type editor struct {
-	name    string
-	grid    [][]byte
-	evs     []*event
-	brush   byte
-	palette []byte
-	selX    int
-	selY    int
-	cur     *event // selected event
-	line    int    // cursor line/col in cur.body
-	col     int
-	focus   bool // keyboard goes to the script
-	status  string
-	swatch  map[byte]*ebiten.Image
-	extra   []string                 // object/item/monster/deco lines of the .map file, kept verbatim
-	mons    map[string]*ebiten.Image // monster thumbnails by name
-	monList []string
-	mon     string // monster brush; "" paints walls
+	name     string
+	grid     [][]byte
+	evs      []*event
+	brush    byte
+	palette  []byte
+	selX     int
+	selY     int
+	cur      *event // selected event
+	line     int    // cursor line/col in cur.body
+	col      int
+	focus    bool // keyboard goes to the script
+	status   string
+	swatch   map[byte]*ebiten.Image
+	extra    []string                 // object/item/monster/deco lines of the .map file, kept verbatim
+	mons     map[string]*ebiten.Image // monster thumbnails by name
+	monList  []string
+	mon      string      // monster brush; "" paints walls
+	flatList [][2]string // floor/ceiling swatches: kind, name ("" = default)
 }
 
 const monsterDir = "cmd/blobber/assets/monsters"
 
-// loadMonsters finds every monster picture and sheet folder in monsterDir.
+// loadMonsters lists every monster id in maps/monsters.txt with its sprite's thumbnail, plus every
+// picture and sheet folder in monsterDir that no row uses (the game gives those stock stats).
 func (e *editor) loadMonsters() {
-	e.mons = map[string]*ebiten.Image{}
+	pics := map[string]*ebiten.Image{}
 	entries, _ := os.ReadDir(monsterDir)
 	for _, d := range entries {
 		name := strings.TrimSuffix(d.Name(), ".png")
 		if d.IsDir() {
 			if s, err := blobber.LoadSheet(os.DirFS(monsterDir), name); err == nil {
-				e.mons[name] = s.Idle()
+				pics[name] = s.Idle
 			}
 		} else if strings.HasSuffix(d.Name(), ".png") {
 			if img, _, err := ebitenutil.NewImageFromFile(monsterDir + "/" + d.Name()); err == nil {
-				e.mons[name] = img
+				pics[name] = img
 			}
+		}
+	}
+	e.mons = map[string]*ebiten.Image{}
+	used := map[string]bool{}
+	if b, err := os.ReadFile("maps/monsters.txt"); err == nil {
+		for _, l := range strings.Split(string(b), "\n") {
+			f := strings.Fields(strings.SplitN(l, "#", 2)[0])
+			if len(f) < 2 {
+				continue
+			}
+			used[f[1]] = true
+			if img := pics[f[1]]; img != nil {
+				e.mons[f[0]] = img
+			} else if img := sprites.Get(f[1]); img != nil { // debug sprite
+				e.mons[f[0]] = img
+			}
+		}
+	}
+	for n, img := range pics {
+		if !used[n] && e.mons[n] == nil {
+			e.mons[n] = img
 		}
 	}
 	for n := range e.mons {
 		e.monList = append(e.monList, n)
 	}
 	sort.Strings(e.monList)
+}
+
+// flat returns the map's floor or ceiling texture name ("" = default) from its extra lines.
+func (e *editor) flat(kind string) string {
+	for _, l := range e.extra {
+		if f := strings.Fields(l); f[0] == kind && len(f) == 2 {
+			return f[1]
+		}
+	}
+	return ""
+}
+
+// setFlat makes name ("" = default) the map's floor or ceiling.
+func (e *editor) setFlat(kind, name string) {
+	kept := e.extra[:0]
+	for _, l := range e.extra {
+		if strings.Fields(l)[0] != kind {
+			kept = append(kept, l)
+		}
+	}
+	e.extra = kept
+	if name != "" {
+		e.extra = append(e.extra, kind+" "+name)
+	}
+}
+
+func drawSwatch(screen, img *ebiten.Image, x, y float32) {
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(32/float64(img.Bounds().Dx()), 32/float64(img.Bounds().Dy()))
+	op.GeoM.Translate(float64(x), float64(y))
+	screen.DrawImage(img, op)
 }
 
 // placeMonster puts e.mon at (x, y), replacing a monster there; placing the same one again removes it.
@@ -225,7 +280,7 @@ func (e *editor) Update() error {
 		e.resize(ctrl)
 	}
 	gx, gy := mx/cell, my/cell
-	onGrid := mx < panelX && gy < len(e.grid) && gx < len(e.grid[gy])
+	onGrid := mx >= 0 && my >= 0 && mx < panelX && gy < len(e.grid) && gx < len(e.grid[gy])
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		e.focus = false
 		e.click(mx, my)
@@ -308,10 +363,12 @@ func (e *editor) tileEvents() []*event {
 
 // panel layout (y offsets)
 const (
-	palY    = 10
-	monY    = 96
-	evY     = 150
-	scriptY = 240
+	palY    = 10 // wall materials, 32px swatches 36px apart
+	flatY   = 60 // floor and ceiling swatches
+	monY    = 120
+	monRow  = 12 // thumbnails per row, 36px apart, two rows
+	evY     = 210
+	scriptY = 260
 	scriptH = 260
 	tmplY   = scriptY + scriptH + 20
 )
@@ -322,14 +379,20 @@ func (e *editor) click(mx, my int) {
 	}
 	px := mx - panelX
 	// palette
-	if my >= palY && my < palY+40 {
-		if i := px / 44; i < len(e.palette) {
+	if my >= palY && my < palY+32 {
+		if i := px / 36; i < len(e.palette) {
 			e.brush, e.mon = e.palette[i], ""
 		}
 		return
 	}
-	if my >= monY && my < monY+40 {
-		if i := px / 44; i < len(e.monList) {
+	if my >= flatY && my < flatY+32 {
+		if i := px / 36; i < len(e.flatList) {
+			e.setFlat(e.flatList[i][0], e.flatList[i][1])
+		}
+		return
+	}
+	if my >= monY && my < monY+72 {
+		if i := (my-monY)/36*monRow + px/36; px/36 < monRow && i < len(e.monList) {
 			e.mon = e.monList[i]
 		}
 		return
@@ -433,7 +496,9 @@ func (e *editor) Draw(screen *ebiten.Image) {
 	for _, l := range e.extra { // props, floor items, monsters: their sprite at their cell
 		f := strings.Fields(l)
 		name, xi := f[1], 2
-		if f[0] == "object" {
+		if f[0] == "floor" || f[0] == "ceiling" {
+			continue
+		} else if f[0] == "object" {
 			name, xi = f[2], 3
 		} else if f[0] == "item" {
 			if it, ok := party.Catalog[f[1]]; ok {
@@ -462,36 +527,40 @@ func (e *editor) Draw(screen *ebiten.Image) {
 	px := float32(panelX)
 	vector.DrawFilledRect(screen, px, 0, winW-px, winH, color.RGBA{20, 20, 24, 255}, false)
 	for i, ch := range e.palette {
-		x := px + float32(i*44)
+		x := px + float32(i*36)
 		if ch == '.' {
-			vector.DrawFilledRect(screen, x, palY, 40, 40, color.RGBA{60, 58, 55, 255}, false)
+			vector.DrawFilledRect(screen, x, palY, 32, 32, color.RGBA{60, 58, 55, 255}, false)
 		} else {
-			op := &ebiten.DrawImageOptions{}
-			sw := e.swatch[ch]
-			op.GeoM.Scale(40/float64(sw.Bounds().Dx()), 40/float64(sw.Bounds().Dy()))
-			op.GeoM.Translate(float64(x), palY)
-			screen.DrawImage(sw, op)
+			drawSwatch(screen, e.swatch[ch], x, palY)
 		}
 		if ch == e.brush && e.mon == "" {
-			vector.StrokeRect(screen, x-1, palY-1, 42, 42, 2, color.RGBA{255, 255, 255, 255}, false)
+			vector.StrokeRect(screen, x-1, palY-1, 34, 34, 2, color.RGBA{255, 255, 255, 255}, false)
 		}
-		ebitenutil.DebugPrintAt(screen, string(ch), int(x)+16, palY+42)
+		ebitenutil.DebugPrintAt(screen, string(ch), int(x)+12, palY+32)
+	}
+	for i, fl := range e.flatList { // floor swatches, then ceiling swatches; the map's own are outlined
+		x := px + float32(i*36)
+		drawSwatch(screen, blobber.FlatTexture(fl[0], fl[1]), x, flatY)
+		if e.flat(fl[0]) == fl[1] {
+			vector.StrokeRect(screen, x-1, flatY-1, 34, 34, 2, color.RGBA{255, 255, 255, 255}, false)
+		}
+		ebitenutil.DebugPrintAt(screen, strings.ToUpper(fl[0][:1]), int(x)+12, flatY+32)
 	}
 	for i, n := range e.monList {
-		x := px + float32(i*44)
+		x, y := px+float32(i%monRow*36), float32(monY+i/monRow*36)
 		img := e.mons[n]
 		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Scale(40/float64(img.Bounds().Dx()), 40/float64(img.Bounds().Dy()))
-		op.GeoM.Translate(float64(x), monY)
+		op.GeoM.Scale(32/float64(img.Bounds().Dx()), 32/float64(img.Bounds().Dy()))
+		op.GeoM.Translate(float64(x), float64(y))
 		screen.DrawImage(img, op)
 		if n == e.mon {
-			vector.StrokeRect(screen, x-1, monY-1, 42, 42, 2, color.RGBA{255, 255, 255, 255}, false)
+			vector.StrokeRect(screen, x-1, y-1, 34, 34, 2, color.RGBA{255, 255, 255, 255}, false)
 		}
 	}
 	if e.mon != "" {
-		ebitenutil.DebugPrintAt(screen, "monster brush: "+e.mon+" (click a tile to place, again to remove)", panelX, monY+42)
+		ebitenutil.DebugPrintAt(screen, "monster brush: "+e.mon+" (click a tile to place, again to remove)", panelX, monY+72)
 	}
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s  %dx%d   Ctrl+S save   Shift+Arrows grow, Ctrl+Shift+Arrows shrink", e.name, len(e.grid[0]), len(e.grid)), panelX, palY+66)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s  %dx%d   Ctrl+S save   Shift+Arrows grow, Ctrl+Shift+Arrows shrink", e.name, len(e.grid[0]), len(e.grid)), panelX, flatY+46)
 
 	here := e.tileEvents()
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("tile %d,%d: %d event(s)   N new  F facing  U use  Tab next  Del remove", e.selX, e.selY, len(here)), panelX, evY)
@@ -542,6 +611,12 @@ func main() {
 		e.swatch[ch] = blobber.Material(ch)
 	}
 	sort.Slice(e.palette, func(i, j int) bool { return e.palette[i] < e.palette[j] })
+	for _, kind := range []string{"floor", "ceiling"} {
+		e.flatList = append(e.flatList, [2]string{kind, ""})
+		for _, n := range blobber.Flats(kind) {
+			e.flatList = append(e.flatList, [2]string{kind, n})
+		}
+	}
 	ebiten.SetWindowSize(winW, winH)
 	ebiten.SetWindowTitle("Blobber map editor: " + e.name)
 	if err := ebiten.RunGame(e); err != nil {

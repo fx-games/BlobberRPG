@@ -32,6 +32,7 @@ type world struct {
 	objs  map[string]*blobber.Object
 	floor []floorItem
 	pop   *blobber.Population
+	flats [2]string // painted floor and ceiling names ("" = default)
 }
 
 // floorItem is loot hidden on a tile; as in World of Xeen items are never drawn in the world, F finds them.
@@ -116,6 +117,7 @@ func (c *console) load(name string) (*world, error) {
 //	item BASE X Y [BONUS]       item lying on the floor, taken with F
 //	monster SPRITE X Y          wandering monster
 //	deco grass|lantern|firefly X Y
+//	floor NAME / ceiling NAME   painted assets/walls/floor_NAME.png / ceiling_NAME.png
 func (c *console) place(w *world, line string) error {
 	f := strings.Fields(line)
 	num := func(i int) int {
@@ -125,7 +127,7 @@ func (c *console) place(w *world, line string) error {
 		n, _ := strconv.Atoi(f[i])
 		return n
 	}
-	need := map[string]int{"object": 5, "item": 4, "monster": 4, "deco": 4}[f[0]]
+	need := map[string]int{"object": 5, "item": 4, "monster": 4, "deco": 4, "floor": 2, "ceiling": 2}[f[0]]
 	if need == 0 || len(f) < need {
 		return fmt.Errorf("want %d fields", need)
 	}
@@ -140,6 +142,10 @@ func (c *console) place(w *world, line string) error {
 		w.drop(party.NewItem(f[1], num(4)), num(2), num(3))
 	case "monster":
 		return c.spawn(f[1], num(2), num(3), -1)
+	case "floor":
+		w.flats[0] = f[1]
+	case "ceiling":
+		w.flats[1] = f[1]
 	case "deco":
 		k, ok := map[string]int{"grass": blobber.Grass, "lantern": blobber.Lantern, "firefly": blobber.Firefly}[f[1]]
 		if !ok {
@@ -157,6 +163,7 @@ func (w *world) drop(it *party.Item, x, y int) {
 // refresh publishes the current world's props to the engine.
 func (c *console) refresh() {
 	w := c.worlds[c.m]
+	blobber.SetFlats(w.flats[0], w.flats[1])
 	blobber.Objects = blobber.Objects[:0]
 	for _, o := range w.objs {
 		blobber.Objects = append(blobber.Objects, o)
@@ -210,6 +217,47 @@ func (c *console) Teleport(m string, x, y int) {
 		return
 	}
 	blobber.SetMap(w.lvl, x, y)
+}
+
+// teleportMenu lists every level (up to 9) and takes the party to the one picked: to the game's
+// start cell on the start map, elsewhere to the first open cell. Esc cancels.
+func (c *console) teleportMenu() {
+	names := maps.List()
+	names = names[:min(9, len(names))]
+	lines := []string{"TELEPORT TO LEVEL", ""}
+	for i, n := range names {
+		lines = append(lines, fmt.Sprintf("  %d  %s", i+1, n))
+	}
+	blobber.ShowPrompt(append(lines, "", "Esc cancels"), false, func(a string) {
+		if a == "" { // Esc
+			return
+		}
+		i := int(a[0] - '1')
+		if i < 0 || i >= len(names) {
+			return
+		}
+		w, err := c.enter(names[i])
+		if err != nil {
+			blobber.Message(err.Error())
+			return
+		}
+		x, y := c.start.x, c.start.y
+		if names[i] != c.start.m {
+			x, y = openCell(w.lvl)
+		}
+		blobber.SetMap(w.lvl, x, y)
+		blobber.Message("Teleported to " + names[i] + ".")
+	})
+}
+
+// openCell finds the first floor cell of a level, row by row.
+func openCell(lvl []string) (int, int) {
+	for y, row := range lvl {
+		if x := strings.IndexByte(row, '.'); x >= 0 {
+			return x, y
+		}
+	}
+	return 1, 1
 }
 
 func (c *console) Fall(m string, x, y, d int) {

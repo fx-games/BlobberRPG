@@ -12,15 +12,15 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 4. **Our own spell list**, curated.
 5. **Default party plus character creation at the inn.** Hirelings are a later nice-to-have.
 6. **Desktop and web** are both targets. Saves: file on desktop, browser storage on web.
-7. **Monster animation depends on the sprites found.** Frames are used when a sheet has them.
+7. **Monsters have three poses, not animations.** Idle, plus attack and hurt shown briefly; death is the hurt pose, then gone.
 8. **Chiptune synth stays** until better sound sources are found.
 9. **The editor must be able to build a complete campaign** (maps, events, world file, data tables).
 
 ## Follow-ups (open items from the work so far)
 
 - [x] Floor and ceiling textures in `assets/walls/floor.png` and `ceiling.png`.
-- [ ] Licence lines in `CREDITS.md` for the stone wall, the floor and the ice giant sheet.
-- [ ] Monster size per sprite (the ice giant renders at the standard 0.6 tiles); a `size` column in `monsters.txt`.
+- [ ] Licence lines in `CREDITS.md` for the stone wall, the floor, the ceiling and the monster poses.
+- [x] Monster size: optional `size` column in `monsters.txt` (tiles tall, default 0.6).
 - [ ] Monster pathfinding: greedy chase stalls behind corners (`monstersTurn` in `blobber.go`).
 - [ ] Bolt spells fly in real time after the turn passes, so a monster can step out of the way.
 - [ ] Save slots and autosave; currently one slot, `blobber.sav` / localStorage.
@@ -52,7 +52,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 
 ### A2. Combat (nothing exists beyond the bolt)
 
-- [~] Monster data table (`maps/monsters.txt`): id, sprite, HP, AC, damage, exp, speed. Pending: attack kinds, resistances, special attacks, loot class, ranged/caster, boss flag.
+- [~] Monster data table (`maps/monsters.txt`): id, sprite, HP, AC, damage, exp, speed, size. Pending: attack kinds, resistances, special attacks, loot class, ranged/caster, boss flag.
 - [~] Monster AI: chase within sight, step into the party's cell for melee, wander otherwise. Pending: pathfinding, ranged, flee.
 - [~] Turn-based play everywhere (decision 1): step / wait / melee round = one turn, then monsters act. Casting costs a turn. Melee rounds in speed order with Attack / Flee. Pending: block, spells and target choice in a round.
 - [~] d20 to-hit vs AC with level and accuracy, weapon damage plus might. Pending: criticals, ranged row.
@@ -128,8 +128,8 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [ ] Gamepad support.
 - [ ] Message log (scrollable history of event and combat text).
 - [ ] Options screen: volume, key bindings, movement speed, dither, fullscreen (partly in the Esc menu).
-- [x] Animated monsters from sprite sheets (idle / attack / hurt / death); see op-codes.md.
-- [~] Painted textures from `assets/walls/` (stone wall done; `floor.png` and `ceiling.png` picked up when present). Pending: sets per map.
+- [x] Monster poses (idle / attack / hurt); see op-codes.md.
+- [x] Painted textures from `assets/walls/`: walls by map character (`walls.txt`), floor and ceiling per map (`floor NAME` / `ceiling NAME`), generated with `create_textures.sh`.
 - [ ] Smooth day/night lighting outdoors; weather is optional.
 - [ ] Quest markers on the map screen for known quest tiles (optional, not in the originals).
 - [ ] Portrait expressions by condition (poisoned, asleep, dead) or at least condition icons on the HUD.

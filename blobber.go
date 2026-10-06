@@ -169,6 +169,9 @@ var (
 // OnUse is called when the player presses F (search / interact) on the current tile.
 var OnMove, OnUse func(x, y, dir int)
 
+// OnTeleportMenu runs when the menu's "Teleport to level" entry is chosen.
+var OnTeleportMenu func()
+
 // sign is world text: a self-lit billboard sitting as far ahead of its cell center as the eye sits behind.
 var sign struct {
 	x, y, dir int
@@ -285,6 +288,7 @@ var (
 	stone                                          = [3]float64{150, 130, 110}
 	mortarC                                        = [3]float64{80, 72, 70}
 	texFront, texRight, texLeft, texFloor, texCeil *ebiten.Image
+	defFloor, defCeil                              *ebiten.Image // before a map picks its own
 	texGrass, texLantern, texFirefly, texFireball  *ebiten.Image
 	texBolt                                        *ebiten.Image
 	atlas                                          []struct {
@@ -336,6 +340,11 @@ func genTextures() {
 	if t := wallTexture("stone"); t != nil { // painted default wall; side faces get their shade from vertex light
 		mats['#'] = &[3]*ebiten.Image{t, t, t}
 	}
+	for ch, name := range paintedWalls() {
+		if t := wallTexture(name); t != nil {
+			mats[ch] = &[3]*ebiten.Image{t, t, t}
+		}
+	}
 	texFront, texRight, texLeft = mats['#'][0], mats['#'][1], mats['#'][2]
 	texFloor = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
 	texCeil = genStone(64, 64, false, [3]float64{70, 66, 72}, [3]float64{40, 38, 42}, 0.4, 1)
@@ -345,6 +354,8 @@ func genTextures() {
 	if t := wallTexture("ceiling"); t != nil {
 		texCeil = t
 	}
+	defFloor, defCeil = texFloor, texCeil
+	SetFlats(flatNames[0], flatNames[1])
 	texGrass = genGrass()
 	texLantern = genSolid(color.RGBA{255, 220, 150, 255})
 	texFirefly = genSolid(color.RGBA{200, 255, 180, 255})
@@ -471,9 +482,9 @@ func hit(a *Actor, dmg int) {
 	if OnKill != nil {
 		OnKill(a.state())
 	}
-	if a.sheet != nil && a.sheet.Anims["death"] != nil { // plays out, then updateActors drops it
+	if a.sheet.Hurt != nil { // the hurt pose shows, then updateActors drops it
 		a.dying = true
-		a.play("death")
+		a.play("hurt")
 		return
 	}
 	for i, b := range actors {
@@ -519,54 +530,35 @@ func Bolt(dmg int, speed, r, g, b float64) {
 // Actor is a monster: a lit billboard standing on the floor of a cell. It acts once per party turn.
 type Actor struct {
 	name              string
-	x, y              int           // cell
-	fx, fz, tx, tz, t float64       // tween from/to and progress
-	tex               *ebiten.Image // still picture, when there is no sheet
+	x, y              int     // cell
+	fx, fz, tx, tz, t float64 // tween from/to and progress
 	hp                int
-	// animation
-	sheet *Sheet
-	anim  *Anim
-	frame int
-	ft    float64 // time into the current frame
-	dying bool    // playing death; gone when it ends
+	sheet             *Sheet
+	pose              *ebiten.Image // attack or hurt, shown for poseLeft seconds
+	poseLeft          float64
+	dying             bool // showing its last hurt pose; gone when it ends
 }
 
-// play starts the named row, if the sheet has it; non-looping rows fall back to idle when done.
+// play shows the attack or hurt pose for PoseTime, if the monster has it.
 func (a *Actor) play(name string) {
-	if a.sheet == nil || a.sheet.Anims[name] == nil {
-		return
+	p := map[string]*ebiten.Image{"attack": a.sheet.Attack, "hurt": a.sheet.Hurt}[name]
+	if p != nil {
+		a.pose, a.poseLeft = p, PoseTime
 	}
-	a.anim, a.frame, a.ft = a.sheet.Anims[name], 0, 0
 }
 
 // img is the picture to draw this frame.
 func (a *Actor) img() *ebiten.Image {
-	if a.anim != nil {
-		return a.anim.Frames[a.frame]
+	if a.poseLeft > 0 {
+		return a.pose
 	}
-	return a.tex
+	return a.sheet.Idle
 }
 
-// animate advances the frame clock; it reports true when a dying actor's death animation is over.
+// animate runs the pose clock; it reports true when a dying actor's last pose is over.
 func (a *Actor) animate(dt float64) bool {
-	if a.anim == nil {
-		return false
-	}
-	a.ft += dt
-	for a.ft >= a.anim.Durations[a.frame] {
-		a.ft -= a.anim.Durations[a.frame]
-		if a.frame++; a.frame >= len(a.anim.Frames) {
-			if a.dying {
-				return true
-			}
-			if a.anim.Loop {
-				a.frame = 0
-			} else {
-				a.play("idle")
-			}
-		}
-	}
-	return false
+	a.poseLeft -= dt
+	return a.dying && a.poseLeft <= 0
 }
 
 var actors []*Actor
@@ -642,15 +634,12 @@ func SwapPopulation(next *Population) *Population {
 
 // SpawnActor places monster name, drawn with img (e.g. a decoded PNG), at cell (x, y) with hp hit points.
 func SpawnActor(name string, img image.Image, x, y, hp int) {
-	spawnActor(&Actor{name: name, x: x, y: y, t: 1, tex: ebiten.NewImageFromImage(img), hp: hp})
+	spawnActor(&Actor{name: name, x: x, y: y, t: 1, sheet: &Sheet{Idle: ebiten.NewImageFromImage(img)}, hp: hp})
 }
 
 // SpawnSheet places an animated monster.
 func SpawnSheet(name string, s *Sheet, x, y, hp int) {
-	a := &Actor{name: name, x: x, y: y, t: 1, sheet: s, hp: hp}
-	a.play("idle")
-	a.ft = rng.Float64() * a.anim.Durations[0] // desynchronise identical monsters
-	spawnActor(a)
+	spawnActor(&Actor{name: name, x: x, y: y, t: 1, sheet: s, hp: hp})
 }
 
 func spawnActor(a *Actor) {
@@ -699,6 +688,16 @@ func Melee() []Monster {
 		}
 	}
 	return out
+}
+
+// Strike shows the attack pose of the first monster called name in the party's cell.
+func Strike(name string) {
+	for _, a := range actors {
+		if a.x == game.x && a.y == game.y && !a.dying && a.name == name {
+			a.play("attack")
+			return
+		}
+	}
 }
 
 // Flee moves the party to a random cell, nearest first, that no monster can see; false if there is none.
@@ -795,13 +794,12 @@ func (g *Game) monstersTurn() {
 		}
 		dx, dy := g.x-a.x, g.y-a.y
 		dist := abs(dx) + abs(dy)
-		if Invisible {
+		if Invisible && dist > 0 { // a monster already in melee stays and fights
 			dist = Sight + 1
 		}
 		var try [][2]int
 		switch {
 		case dist == 0: // in melee: it strikes during the host's round
-			a.play("attack")
 			continue
 		case dist <= Sight:
 			sx, sy := sgn(dx), sgn(dy)
@@ -1032,14 +1030,20 @@ func (g *Game) tween() {
 
 // updateMenu reports true when Quit was chosen.
 func (g *Game) updateMenu() bool {
-	n := 6
+	n := 7
 	if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
 		g.sel = (g.sel + n - 1) % n
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
 		g.sel = (g.sel + 1) % n
 	}
-	if g.sel == 5 && (inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyRight)) {
+	pick := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyRight)
+	if g.sel == 5 && pick && OnTeleportMenu != nil {
+		g.menu = false
+		OnTeleportMenu()
+		return false
+	}
+	if g.sel == 6 && pick {
 		return true
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
@@ -1237,10 +1241,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	dst.Fill(color.Black)
 
 	var faces []*face
+	var bias float64 // sorts faces this much nearer than their centre
 	q := func(a, b, cc, d vert, t *ebiten.Image, sub int) {
 		f := &face{v: [4]vert{a, b, cc, d}, tex: t, sub: sub}
 		mx, mz := (a.x+cc.x)/2-c.x, (a.z+cc.z)/2-c.z
-		f.dist = mx*c.fwx + mz*c.fwz
+		f.dist = mx*c.fwx + mz*c.fwz - bias
 		if f.dist > -1 {
 			faces = append(faces, f)
 		}
@@ -1295,23 +1300,31 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		q(vert{ox - hx, 0.5 - hgt, oz - hz, 0, 0, 0, 0, 0}, vert{ox + hx, 0.5 - hgt, oz + hz, 1, 0, 0, 0, 0},
 			vert{ox + hx, 0.5, oz + hz, 1, 1, 0, 0, 0}, vert{ox - hx, 0.5, oz - hz, 0, 1, 0, 0, 0}, o.Img, 1)
 	}
+	// monsters paint over the walls of their own cell (a wide one would vanish into them), not nearer ones
+	bias = 0.5
 	for _, a := range actors { // monsters: floor-standing billboards
 		ax, az := a.pos()
 		if _, ok := visibleCells(c)[[2]int{int(math.Floor(ax)), int(math.Floor(az))}]; !ok {
 			continue
 		}
-		if a.x == g.x && a.y == g.y { // in melee: right in front of us, whichever way we face
-			ax, az = g.tx+c.fwx*0.45, g.tz+c.fwz*0.45
+		if a.x == g.x && a.y == g.y { // in melee: as far in front of our centre as we stand behind it, whichever way we face
+			ax, az = g.tx+c.fwx*2*eyeBack, g.tz+c.fwz*2*eyeBack
 		}
 		ax, az = ax-c.fwx*eyeBack, az-c.fwz*eyeBack // mirror the eye: we stand at the back of our cell, the monster at the front of its, facing us
 		img := a.img()
 		b := img.Bounds()
-		k := 0.6 / math.Max(float64(b.Dx()), float64(b.Dy())) // longest side = 0.6 tiles
+		size := a.sheet.Size
+		if size == 0 {
+			size = 0.6
+		}
+		k := math.Min(size/float64(b.Dy()), math.Max(1, size)/float64(b.Dx()))
 		wid, hgt := k*float64(b.Dx()), k*float64(b.Dy())
 		hx, hz := c.rtx*wid/2, c.rtz*wid/2
 		q(vert{ax - hx, 0.5 - hgt, az - hz, 0, 0, 0, 0, 0}, vert{ax + hx, 0.5 - hgt, az + hz, 1, 0, 0, 0, 0},
 			vert{ax + hx, 0.5, az + hz, 1, 1, 0, 0, 0}, vert{ax - hx, 0.5, az - hz, 0, 1, 0, 0, 0}, img, 1)
 	}
+	bias = 0
+
 	if sign.tex != nil {
 		d := dirs[sign.dir]
 		sx, sz := float64(sign.x)+0.5+float64(d[0])*eyeBack, float64(sign.y)+0.5+float64(d[1])*eyeBack
@@ -1436,7 +1449,7 @@ func onOff(b bool) string {
 }
 
 func (g *Game) drawMenu(screen *ebiten.Image) {
-	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), fmt.Sprintf("Heightmap bump:    %.2f", bump), "Fullscreen:        " + onOff(ebiten.IsFullscreen()), "Quit game"}
+	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), fmt.Sprintf("Heightmap bump:    %.2f", bump), "Fullscreen:        " + onOff(ebiten.IsFullscreen()), "Teleport to level", "Quit game"}
 	if Window != nil {
 		Window(screen, "MENU", append(items, "", "up/down choose, Space change, Esc closes"), g.sel, false)
 		return

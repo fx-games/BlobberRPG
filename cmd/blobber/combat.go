@@ -13,6 +13,8 @@ import (
 	"blobber"
 	"blobber/party"
 	"blobber/sprites"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // kind is one row of maps/monsters.txt.
@@ -20,11 +22,12 @@ type kind struct {
 	Sprite           string
 	HP, AC, Dmg, Exp int
 	Spd              int
+	Size             float64 // tiles tall; 0 = the engine's 0.6
 }
 
 var kinds = map[string]kind{}
 
-// loadMonsters reads "id sprite hp ac dmg exp [spd]" lines (spd defaults to 10); # starts a comment.
+// loadMonsters reads "id sprite hp ac dmg exp [spd [size]]" lines (spd defaults to 10); # starts a comment.
 func loadMonsters(r io.Reader) error {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
@@ -32,14 +35,18 @@ func loadMonsters(r io.Reader) error {
 		if len(f) == 0 {
 			continue
 		}
-		if len(f) != 6 && len(f) != 7 {
-			return fmt.Errorf("monsters.txt: %q: want id sprite hp ac dmg exp [spd]", sc.Text())
+		if len(f) < 6 || len(f) > 8 {
+			return fmt.Errorf("monsters.txt: %q: want id sprite hp ac dmg exp [spd [size]]", sc.Text())
 		}
 		n := [5]int{4: 10}
-		for i := range f[2:] {
+		for i := range f[2:min(len(f), 7)] {
 			n[i], _ = strconv.Atoi(f[2+i])
 		}
-		kinds[f[0]] = kind{f[1], n[0], n[1], n[2], n[3], n[4]}
+		k := kind{f[1], n[0], n[1], n[2], n[3], n[4], 0}
+		if len(f) == 8 {
+			k.Size, _ = strconv.ParseFloat(f[7], 64)
+		}
+		kinds[f[0]] = k
 	}
 	return sc.Err()
 }
@@ -49,7 +56,7 @@ func kindOf(id string) kind {
 	if k, ok := kinds[id]; ok {
 		return k
 	}
-	return kind{id, 10, 3, 3, 5, 10}
+	return kind{id, 10, 3, 3, 5, 10, 0}
 }
 
 // spawn places monster id at (x, y) with hp hit points (hp < 0 = full).
@@ -58,29 +65,27 @@ func (c *console) spawn(id string, x, y, hp int) error {
 	if hp < 0 {
 		hp = k.HP
 	}
-	if s, ok := sheets[k.Sprite]; ok {
-		blobber.SpawnSheet(id, s, x, y, hp)
-		return nil
-	}
-	if img := sprites.Get(k.Sprite); img != nil {
-		blobber.SpawnActor(id, img, x, y, hp)
-		return nil
-	}
-	if s, err := loadSheet(k.Sprite); err == nil {
+	s, ok := sheets[k.Sprite]
+	if !ok {
+		if img := sprites.Get(k.Sprite); img != nil {
+			s = &blobber.Sheet{Idle: ebiten.NewImageFromImage(img)}
+		} else if s, _ = loadSheet(k.Sprite); s == nil {
+			img, err := loadMonster(k.Sprite)
+			if err != nil {
+				fmt.Println("  spawn failed:", err)
+				return err
+			}
+			s = &blobber.Sheet{Idle: ebiten.NewImageFromImage(img)}
+		}
 		sheets[k.Sprite] = s
-		blobber.SpawnSheet(id, s, x, y, hp)
-		return nil
 	}
-	img, err := loadMonster(k.Sprite)
-	if err != nil {
-		fmt.Println("  spawn failed:", err)
-		return err
-	}
-	blobber.SpawnActor(id, img, x, y, hp)
+	sized := *s // ids sharing a sprite may differ in size
+	sized.Size = k.Size
+	blobber.SpawnSheet(id, &sized, x, y, hp)
 	return nil
 }
 
-// sheets caches loaded sprite sheets by folder name.
+// sheets caches loaded monster pictures by sprite name.
 var sheets = map[string]*blobber.Sheet{}
 
 // ---------- turn-based rules ----------
@@ -266,6 +271,7 @@ func (c *console) swing(ch *party.Character, i int, m blobber.Monster) {
 
 // defend is monster m striking a random living character.
 func (c *console) defend(m blobber.Monster) {
+	blobber.Strike(m.Name)
 	if god {
 		return
 	}

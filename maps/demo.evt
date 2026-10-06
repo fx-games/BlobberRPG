@@ -31,10 +31,12 @@ ok:
   remove
 
 
-# stairs down to the cave
+  # stairs down to the cave
+
 event 26,11 any
   text "A staircase leads down."
 
 event 26,11 any use
   sound stairs
   teleport cave 1 1
+

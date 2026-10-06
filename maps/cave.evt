@@ -63,3 +63,11 @@ event 1,5 any use
   exit
 done:
   text "The lever is stuck."
+
+# a frozen shaft down to the ice cave
+event 5,5 any
+  text "Cold air rises from a shaft in the floor."
+
+event 5,5 any use
+  sound stairs
+  teleport icecave 1 1

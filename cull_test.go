@@ -92,29 +92,35 @@ func TestDoorIsPassable(t *testing.T) {
 	}
 }
 
-// A sheet-backed monster plays hurt on a wound and death on a kill, and is gone once death ends.
+// A posed monster shows hurt on a wound, idle again after PoseTime, and on a kill lingers in its
+// hurt pose until that ends.
 func TestSheetAnimation(t *testing.T) {
 	defer SwapPopulation(SwapPopulation(nil))
 	s, err := LoadSheet(os.DirFS("cmd/blobber/assets/monsters"), "ice_giant")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Anims["idle"].Frames) != 4 || len(s.Anims["death"].Frames) != 5 || s.Anims["attack"].Loop {
-		t.Fatalf("rows: %+v", s.Anims)
+	if s.Idle == nil || s.Attack == nil || s.Hurt == nil {
+		t.Fatalf("poses: %+v", s)
 	}
 	SpawnSheet("ice_giant", s, 2, 2, 10)
 	g := &Game{}
 	HitMonster(2, 2, 3)
-	if a := actorAt(2, 2); a == nil || a.anim != s.Anims["hurt"] {
-		t.Fatal("hurt not playing")
+	a := actorAt(2, 2)
+	if a == nil || a.img() != s.Hurt {
+		t.Fatal("hurt not showing")
+	}
+	g.updateActors(PoseTime)
+	if a.img() != s.Idle {
+		t.Fatal("idle should return")
 	}
 	HitMonster(2, 2, 10)
 	if actorAt(2, 2) != nil || len(actors) != 1 || !actors[0].dying || MonsterAt(2, 2) != "" {
 		t.Fatal("dying monster should linger but not count")
 	}
-	g.updateActors(10)
+	g.updateActors(PoseTime)
 	if len(actors) != 0 {
-		t.Fatal("death animation should end and remove the actor")
+		t.Fatal("the last pose should end and remove the actor")
 	}
 }
 
@@ -127,6 +133,14 @@ func TestMeleeAndFlee(t *testing.T) {
 	game.monstersTurn()
 	if !Fighting() || len(Melee()) != 1 {
 		t.Fatal("rat should step into the party's cell")
+	}
+	Invisible = true // even unseen, a monster in melee holds its place
+	for range 20 {
+		game.monstersTurn()
+	}
+	Invisible = false
+	if len(Melee()) != 1 {
+		t.Fatal("a monster in melee should stay")
 	}
 	game.act(ebiten.KeyD) // east: blocked in melee
 	if x, y, _ := Pos(); x != 1 || y != 1 {

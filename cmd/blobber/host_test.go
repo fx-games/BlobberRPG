@@ -44,6 +44,28 @@ func TestTeleport(t *testing.T) {
 	}
 }
 
+// TestIceCave: the shaft from the cave leads down, the chest pays out once, the stairs lead back up.
+func TestIceCave(t *testing.T) {
+	h := newTestHost(t, "cave", 5, 5)
+	use(h, 5, 5)
+	if x, y, _ := blobber.Pos(); x != 1 || y != 1 || h.m != "icecave" {
+		t.Fatalf("pos %d,%d map %s", x, y, h.m)
+	}
+	if h.worlds["icecave"].flats != [2]string{"ice_cave", "ice_cave"} {
+		t.Fatal("flats", h.worlds["icecave"].flats)
+	}
+	gold := h.Gold
+	use(h, 6, 5)
+	use(h, 6, 5)
+	if h.Gold != gold+150 {
+		t.Fatal("chest gold", h.Gold-gold)
+	}
+	use(h, 1, 1)
+	if x, y, _ := blobber.Pos(); x != 5 || y != 5 || h.m != "cave" {
+		t.Fatalf("pos %d,%d map %s", x, y, h.m)
+	}
+}
+
 func TestLever(t *testing.T) {
 	h := newTestHost(t, "cave", 1, 5)
 	lever, pulled := h.worlds["cave"].objs["lever"], h.worlds["cave"].objs["lever_pulled"]
@@ -174,7 +196,7 @@ func TestCombatAndSave(t *testing.T) {
 	defer func() { blobber.OnMelee, blobber.OnKill, blobber.OnTurn = nil, nil, nil }()
 	roll = func(n int) int { return n - 1 } // always the top roll
 	defer func() { roll = rand.Intn }()
-	kinds["rat"] = kind{"001", 6, 2, 3, 5, 10}
+	kinds["rat"] = kind{"001", 6, 2, 3, 5, 10, 0}
 	blobber.ClearMonsters()
 	h.spawn("rat", 2, 1, 2) // in the party's cell: melee
 	h.AddItem(party.NewItem("steel_sword", 0))
