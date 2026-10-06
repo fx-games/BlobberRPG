@@ -210,3 +210,35 @@ func TestCombatAndSave(t *testing.T) {
 		t.Fatalf("pos %d,%d", x, y)
 	}
 }
+
+func TestWorldRestAndEnd(t *testing.T) {
+	h := newTestHost(t, "demo", 2, 1)
+	if h.start.m != "demo" || h.start.title != "Blobber Demo" || h.start.dir != 1 {
+		t.Fatalf("world: %+v", h.start)
+	}
+	blobber.ClearMonsters()
+	h.Chars[0].HP, h.Food, h.Day = 3, 1, 1
+	h.rest()
+	if h.Chars[0].HP != 3 {
+		t.Fatal("rest without food")
+	}
+	h.Food = 5
+	h.rest()
+	if h.Chars[0].HP != 30 || h.Food != 3 || h.Minutes != 16*60 {
+		t.Fatalf("rest: hp %d food %d min %d", h.Chars[0].HP, h.Food, h.Minutes)
+	}
+	h.spawn("rat", 3, 1, -1)
+	h.Chars[0].HP = 3
+	h.rest()
+	if h.Chars[0].HP != 3 {
+		t.Fatal("rest next to a monster")
+	}
+	// End with a cutscene up: the cutscene stays, the last word follows when it closes
+	cs := &ui.Cutscene{}
+	blobber.Modal = cs
+	h.End(true)
+	if w, ok := blobber.Modal.(*then); !ok || w.Overlay != cs {
+		t.Fatalf("End should wrap the cutscene, got %T", blobber.Modal)
+	}
+	blobber.Modal = nil
+}

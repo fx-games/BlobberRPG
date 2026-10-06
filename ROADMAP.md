@@ -43,7 +43,7 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 - [ ] Conditions: poisoned, diseased, asleep, paralyzed, unconscious, dead, stone, eradicated, cursed, weak, drunk; effects on turns and stats; cure sources (spells, temple, time).
 - [~] Experience award and message strip done. Pending: loot drop, scrolling log.
 - [ ] Respawn rule: non-boss monsters return after N days.
-- [~] Party wipe → message, then the last save loads (or the game quits). Pending: a proper screen and title menu.
+- [x] Party wipe → message, then the title menu.
 
 ### A3. Characters
 
@@ -76,21 +76,21 @@ with opcodes, fixed monster placement, data tables); the engine side (graphics, 
 ### A6. World and time
 
 - [~] Game clock: one minute per turn, day rollover. Pending: rest, shop time, day/night.
-- [ ] Rest / camp: heals over time, consumes food, random encounter chance, refused when monsters are near.
+- [~] Rest (R): full heal for one food each, refused near monsters. Pending: random encounters.
 - [~] Doors: `D` is an open doorway drawn as a door, `L` a locked one that scripts open with `altercell X Y D`. Pending: bash, traps, secret doors.
 - [ ] Wall decorations: torches, grates, signs, stairs, cave mouths, town entrances.
 - [ ] Terrain types with rules: water (swimmer / water walk), swamp (poison), lava (damage), desert, snow, road, mountains (mountaineer), forest; movement cost or block.
 - [ ] Outdoor maps: sky backdrop, horizon, day/night tint, distant trees/mountains as blocks or billboards.
 - [ ] Full map screen with explored cells (cartographer skill), map name, coordinates.
-- [ ] World file: list of maps, their names, outdoor/indoor flag, per-map music, start map and position.
+- [~] World file (`maps/world.txt`): title, start. Pending: map names, music, indoor/outdoor.
 
 ### A7. Story, quests, win state
 
-- [ ] Awards / quests screen listing awards and quest items (awards flags exist, no UI).
-- [ ] Opcodes: `win` (victory cutscene, score, credits, back to title), `gameover`, `award` as a first-class text table.
-- [ ] Title screen: new game, load, options, credits.
+- [x] Journal (J) listing awards with text from `maps/awards.txt`.
+- [~] Opcodes `win` and `gameover` (last word, then title); awards text table. Pending: score, credits.
+- [~] Title menu: new game, load, quit. Pending: options, credits, art.
 - [ ] Intro / ending cutscenes with full-screen art (text-only pages exist).
-- [ ] Game over screen on party death.
+- [x] Party wipe → message, then the title menu.
 
 ### A8. Shops, completed
 

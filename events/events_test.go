@@ -1,6 +1,7 @@
 package events
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,7 @@ func (f *fake) SetCell(x, y int, kind string)          { f.log = append(f.log, "
 func (f *fake) MoveObject(n string, x, y int)          { f.log = append(f.log, "move "+n) }
 func (f *fake) ExchangeObjects(a, b string)            { f.log = append(f.log, "exch "+a+b) }
 func (f *fake) GiveItem(who int, k string, en, ex int) { f.log = append(f.log, "item "+k) }
+func (f *fake) End(won bool)                           { f.log = append(f.log, fmt.Sprint("end ", won)) }
 
 const src = `
 # a searchable tree: only when the player searches

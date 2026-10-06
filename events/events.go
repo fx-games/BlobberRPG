@@ -79,6 +79,7 @@ type Host interface {
 	MoveObject(name string, x, y int)
 	ExchangeObjects(a, b string)
 	GiveItem(who int, kind string, enchant, extra int)
+	End(won bool) // the game is over: victory or defeat
 }
 
 type WaitKind int
@@ -485,6 +486,9 @@ func (vm *VM) exec(fr *frame, in instr) *Wait {
 				jump(a[len(a)-1])
 			}
 		}
+	case "win", "gameover":
+		h.End(in.op == "win")
+		vm.exit()
 	case "call":
 		x, y, _ := xy(a[0])
 		if t := vm.maps[ev.m][key{x, y, facings[a[1]], false}]; t != nil {

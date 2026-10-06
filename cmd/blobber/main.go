@@ -39,20 +39,17 @@ func loadSheet(name string) (*blobber.Sheet, error) {
 }
 
 func main() {
-	pt := party.New(party.NewCharacter("Ann", "knight", 30, 0), party.NewCharacter("Bob", "monk", 12, 20), party.NewCharacter("Cyd", "robber", 20, 0))
-	pt.Chars[0].Sex = "f"
-	pt.Gold = 500
-	for _, s := range []string{"bronze_dagger", "chainmail", "oak_shield", "helmet", "boots", "ring"} {
-		pt.AddItem(party.NewItem(s, 0))
-	}
-	pt.AddItem(party.NewItem("potion", 0))
-	pt.AddItem(party.NewItem("potion", 0))
+	pt := newParty()
 	if f, err := maps.Open("npcs.txt"); err == nil {
 		ui.LoadNPCs(f)
 		f.Close()
 	}
+	if f, err := maps.Open("awards.txt"); err == nil {
+		ui.LoadAwards(f)
+		f.Close()
+	}
 	host := newConsole(pt)
-	w, err := host.enter("demo")
+	w, err := host.enter(host.start.m)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -79,6 +76,8 @@ func main() {
 		}
 		pump(host.vm, host.vm.Use(host.m, x, y, events.Facing(dir)))
 	}
+	blobber.Keys[ebiten.KeyJ] = func() { blobber.Modal = &ui.Journal{P: pt} }
+	blobber.Keys[ebiten.KeyR] = host.rest
 	blobber.Keys[ebiten.KeyF5] = func() { report(host.saveGame(), "Game saved.") }
 	blobber.Keys[ebiten.KeyF9] = func() { report(host.loadGame(), "Game loaded.") }
 	blobber.Keys[ebiten.KeyI] = func() { blobber.Modal = ui.NewInventory(pt) }
@@ -107,12 +106,8 @@ func main() {
 	pt.OnHit = func(who, n int, kind string) {
 		ui.Hit(who, n, kind)
 		sfx.Play("hit")
-		if host.Wiped() { // game over: back to the last save, or quit
-			blobber.Modal = &ui.Talk{Text: "Your party has fallen.", Done: func(bool) {
-				if host.loadGame() != nil {
-					os.Exit(0)
-				}
-			}}
+		if host.Wiped() {
+			blobber.Modal = &ui.Talk{Text: "Your party has fallen.", Done: func(bool) { host.title() }}
 		}
 	}
 	// clicking a portrait opens that character's inventory
@@ -129,7 +124,8 @@ func main() {
 	ui.Install()
 	devOpen(host)
 
-	if err := blobber.Run(w.lvl, 1, 1, 1); err != nil {
+	host.title()
+	if err := blobber.Run(w.lvl, host.start.x, host.start.y, host.start.dir); err != nil {
 		log.Fatal(err)
 	}
 }

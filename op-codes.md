@@ -95,6 +95,16 @@ Most properties act on the **selected character** (see `setchar`, `whowill`, `se
 | `cutscene NAME` | 0x1E / 0x39 / 0x3A CutsceneEnd* | shows `maps/cutscenes/NAME.txt` full screen. The script continues underneath |
 | `town KIND` | 0x11 DoTownEvent | opens a shop: smith, guild, temple, tavern, trainer, bank |
 
+### Story
+
+| keyword | Xeen | behaviour |
+|---|---|---|
+| `win` | 0x39 / 0x3A CutsceneEnd* | the game is won: a last word, then the title menu. Play `cutscene ending` first for a finale |
+| `gameover` | — | the quest has failed; same flow |
+
+Awards are the quest log: `give award ID` records one, `if award ID goto L` tests it, J shows them with
+the text from `maps/awards.txt` (`id text...`).
+
 ### Self-modifying
 
 These persist through `VM.Patches()` / `ApplyPatches()`; the `.evt` file is never changed.
@@ -149,6 +159,18 @@ Spells: the Mage Guild (`town guild`) teaches the spells in `party/spells.go` to
 the `spell` property with the spell id as its argument, so scripts can test, give and take spells.
 
 In game, F takes floor items first and otherwise runs the tile's `use` event. I opens the inventory.
+
+## World file
+
+`maps/world.txt` names the campaign and where a new game starts:
+
+```
+title Blobber Demo
+start demo 1 1 e
+```
+
+The title menu (new game, load, quit) shows at startup and after `win`, `gameover` or a party wipe.
+R rests for eight hours when no monster is in sight: one food per character, full HP and SP.
 
 ## Turns, combat, saving
 

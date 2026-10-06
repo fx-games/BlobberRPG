@@ -23,6 +23,7 @@ type console struct {
 	vm     *events.VM
 	m      string // current map name
 	worlds map[string]*world
+	start  start // from maps/world.txt
 }
 
 // world is one loaded map: its grid, named props, floor items and (while not current) population.
@@ -48,7 +49,7 @@ func newConsole(p *party.Party) *console {
 			f.Close()
 		}
 	}
-	c := &console{Party: p, worlds: map[string]*world{}}
+	c := &console{Party: p, worlds: map[string]*world{}, start: loadWorld()}
 	c.vm = events.New(c)
 	return c
 }

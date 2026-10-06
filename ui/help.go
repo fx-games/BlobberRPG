@@ -19,7 +19,7 @@ var helpKeys = [2][]struct {
 	keys  [][2]string
 }{{
 	{"Moving", [][2]string{{"W / Up", "step forward"}, {"S / Down", "step back"}, {"A  D", "step left, right"}, {"Q  E", "turn left, right"}}},
-	{"Acting", [][2]string{{"F", "search, take, use"}, {"I", "inventory"}, {"C", "cast a spell"}, {"Space", "wait a turn"}}},
+	{"Acting", [][2]string{{"F", "search, take, use"}, {"I", "inventory"}, {"C", "cast a spell"}, {"J", "journal"}, {"R", "rest"}, {"Space", "wait a turn"}}},
 	{"Game", [][2]string{{"Esc", "menu, quit"}, {"F5  F9", "save, load"}, {"?", "this help"}}},
 }, {
 	{"Party", [][2]string{{"F1 - F6", "pick a character"}, {"", "in menus and shops"}}},
