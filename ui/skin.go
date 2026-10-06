@@ -211,8 +211,7 @@ func (c *canvas) begin() *ebiten.Image {
 
 func (c *canvas) present(screen *ebiten.Image) {
 	c.k = K(cw, ch)
-	// centred, but never over the party cards
-	c.ox, c.oy = (blobber.W-cw*c.k)/2, max(0, min((blobber.H-ch*c.k)/2, blobber.H-(cardH+4)*c.k-ch*c.k))
+	c.ox, c.oy = (blobber.W-cw*c.k)/2, max(0, (blobber.H-ch*c.k)/2)
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(float64(c.k), float64(c.k))
 	op.GeoM.Translate(float64(c.ox), float64(c.oy))
@@ -289,7 +288,7 @@ func Window(screen *ebiten.Image, title string, lines []string, sel int, bottom 
 	case bottom && blobber.Fighting(): // combat menus sit top left, clear of the monster in front
 		x, y = 8, 24
 	case bottom:
-		y = blobber.H - (cardH+8)*k - h*k
+		y = blobber.H - 8*k - h*k
 	}
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(float64(k), float64(k))

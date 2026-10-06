@@ -1318,6 +1318,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			size = 0.6
 		}
 		k := math.Min(size/float64(b.Dy()), math.Max(1, size)/float64(b.Dx()))
+		if a.sheet.density { // one pixel density for every painted monster; poses keep their own extent
+			k = 1.0 / PxPerTile
+		}
 		wid, hgt := k*float64(b.Dx()), k*float64(b.Dy())
 		hx, hz := c.rtx*wid/2, c.rtz*wid/2
 		q(vert{ax - hx, 0.5 - hgt, az - hz, 0, 0, 0, 0, 0}, vert{ax + hx, 0.5 - hgt, az + hz, 1, 0, 0, 0, 0},
@@ -1477,14 +1480,21 @@ func (g *Game) drawAtlas(screen *ebiten.Image) {
 	}
 }
 
+// MinimapRect is the minimap's framed area on screen, in device pixels.
+func MinimapRect() image.Rectangle {
+	const r = 7
+	cs := float32(5 * ebiten.Monitor().DeviceScaleFactor())
+	ox, oy, m := float32(W)-cs*(2*r+3), 2*cs, 2*cs
+	return image.Rect(int(ox-m), int(oy-m), int(ox+cs*(2*r+1)+m), int(oy+cs*(2*r+1)+m))
+}
+
 // drawMinimap: 15x15 cells around the player top-right, walls as squares, player as an arrow along the camera.
 func (g *Game) drawMinimap(screen *ebiten.Image, c cam) {
 	const r = 7                                             // half window
 	cs := float32(5 * ebiten.Monitor().DeviceScaleFactor()) // cell size in px
 	ox, oy := float32(W)-cs*(2*r+3), 2*cs
 	if Panel != nil {
-		m := 2 * cs // room for the frame
-		Panel(screen, image.Rect(int(ox-m), int(oy-m), int(ox+cs*(2*r+1)+m), int(oy+cs*(2*r+1)+m)))
+		Panel(screen, MinimapRect())
 	} else {
 		vector.DrawFilledRect(screen, ox-cs, oy-cs, cs*(2*r+3), cs*(2*r+3), color.RGBA{0, 0, 0, 160}, false)
 	}

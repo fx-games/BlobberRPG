@@ -13,6 +13,7 @@ import (
 	"blobber"
 	"blobber/party"
 	"blobber/sprites"
+	"blobber/ui"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -79,14 +80,18 @@ func (c *console) spawn(id string, x, y, hp int) error {
 		}
 		sheets[k.Sprite] = s
 	}
-	sized := *s // ids sharing a sprite may differ in size
-	sized.Size = k.Size
-	blobber.SpawnSheet(id, &sized, x, y, hp)
+	key := fmt.Sprintf("%s@%g", k.Sprite, k.Size) // ids sharing a sprite may differ in size
+	sized, ok := scaled[key]
+	if !ok {
+		sized = s.Scaled(k.Size)
+		scaled[key] = sized
+	}
+	blobber.SpawnSheet(id, sized, x, y, hp)
 	return nil
 }
 
-// sheets caches loaded monster pictures by sprite name.
-var sheets = map[string]*blobber.Sheet{}
+// sheets caches loaded monster pictures by sprite name, scaled the resampled ones by sprite@size.
+var sheets, scaled = map[string]*blobber.Sheet{}, map[string]*blobber.Sheet{}
 
 // ---------- turn-based rules ----------
 // ponytail: d20 rolls against AC, melee only (monsters sharing the party's cell), everyone strikes the
@@ -127,6 +132,7 @@ func (c *console) melee() {
 	clear(blocking)
 	var next func(i int)
 	next = func(i int) {
+		ui.Active = nil // monsters' turns: nobody's frame is lit
 		for ; i < len(order) && !c.Wiped(); i++ {
 			ms := blobber.Melee()
 			if len(ms) == 0 {
@@ -156,6 +162,7 @@ var blocking = map[*party.Character]bool{}
 // choose asks ch for a round action and calls done once it is taken (flee ends the round itself).
 func (c *console) choose(ch *party.Character, done func()) {
 	again := func() { c.choose(ch, done) }
+	ui.Active = ch
 	blobber.ShowPrompt([]string{ch.Name + "'s turn:", "  1  Attack", "  2  Block", "  3  Cast", "  4  Flee"}, false, func(a string) {
 		switch a {
 		case "1":

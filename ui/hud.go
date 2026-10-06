@@ -10,14 +10,17 @@ import (
 	"blobber/sprites"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
-	hitFrames      = 70 // how long a damage icon stays on a portrait
-	cardW, cardH   = 142, 61
-	cardGap        = 2
-	portraitX, pY0 = 8, 8 // just inside the frame's 8 px border
-	textX          = portraitX + PortraitSize + 6
+	hitFrames      = 70                       // how long a damage icon stays on a portrait
+	portraitX, pY0 = 8, 8                     // just inside the frame's 8 px border
+	frameH         = pY0 + PortraitSize + pY0 // the frame holds only the portrait
+	barY           = frameH + 1               // HP and SP bars below it, as wide as the frame
+	cardW, cardH   = PortraitSize + 2*portraitX, barY + 2*11
+	cardGap        = 2 // between columns
+	rowGap         = 8 // between a card's bars and the next portrait
 )
 
 type hitMark struct {
@@ -31,19 +34,34 @@ var (
 	cards   []*ebiten.Image
 )
 
+// Active is the character whose combat action is being asked for; its frame is outlined in gold
+// while a fight is on. The host sets it.
+var Active *party.Character
+
 // Hit shows a damage icon of the given kind over character who's (1-based) portrait.
 // It matches party.Party.OnHit.
 func Hit(who, n int, kind string) { hits[who-1] = hitMark{kind, n, frameNo} }
 
-// card is character i's rectangle on screen, in device pixels, for a party of n.
+// card is character i's rectangle on screen, in device pixels, for a party of n: a column at the
+// right edge below the minimap, two columns when one does not fit, then shrunk until they do.
 func card(i, n int) image.Rectangle {
-	k := K(cw, ch)
-	if (cardW+cardGap)*k*n > blobber.W { // six cards: shrink until the row fits
-		k = max(1, blobber.W/((cardW+cardGap)*n))
+	mm := blobber.MinimapRect()
+	top, avail := mm.Max.Y+4, blobber.H-mm.Max.Y-8
+	k, cols := K(cw, ch), 1
+	for k > 1 || cols == 1 {
+		if rows := (n + cols - 1) / cols; rows*(cardH+rowGap)*k <= avail {
+			break
+		}
+		if cols == 1 {
+			cols = 2
+		} else {
+			k--
+		}
 	}
-	w := (cardW + cardGap) * k
-	x := (blobber.W-w*n)/2 + i*w
-	y := blobber.H - (cardH+4)*k
+	w, h := (cardW+cardGap)*k, (cardH+rowGap)*k
+	right := mm.Max.X // flush with the minimap's right edge
+	x := right - (cols-i%cols)*w + cardGap*k
+	y := top + i/cols*h
 	return image.Rect(x, y, x+cardW*k, y+cardH*k)
 }
 
@@ -57,7 +75,7 @@ func PartyAt(p *party.Party, x, y int) int {
 	return -1
 }
 
-// DrawParty draws one framed card per character along the bottom edge: portrait, name, HP and SP bars,
+// DrawParty draws one framed card per character down the right edge: portrait, HP and SP bars below it,
 // and for a moment after a hit the damage-type icon and amount over the portrait.
 func DrawParty(screen *ebiten.Image, p *party.Party) {
 	frameNo++
@@ -78,7 +96,10 @@ func DrawParty(screen *ebiten.Image, p *party.Party) {
 }
 
 func drawCard(d *ebiten.Image, i int, c *party.Character) {
-	DarkFrame(d, rc(0, 0, cardW, cardH))
+	DarkFrame(d, rc(0, 0, cardW, frameH))
+	if c == Active && blobber.Fighting() {
+		vector.StrokeRect(d, 1.5, 1.5, cardW-3, frameH-3, 3, gold, false)
+	}
 	img := Portrait(c)
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(portraitX, pY0)
@@ -94,24 +115,26 @@ func drawCard(d *ebiten.Image, i int, c *party.Character) {
 	}
 	d.DrawImage(img, op)
 
-	name := c.Name
+	cond := ""
 	for _, k := range party.Conditions {
 		if c.Has["condition:"+k] {
-			name += " - " + k
+			cond = k
 			break
 		}
 	}
-	if dead && !c.Has["condition:dead"] {
-		name += " - dead"
+	if dead {
+		cond = "dead"
 	}
-	Print(d, name, textX, 6, gold)
+	if cond != "" { // no room for the name: only a condition is spelled out, over the portrait
+		Print(d, cond, portraitX+1, pY0+PortraitSize-12, gold)
+	}
 	hp := GreenFill
 	if c.HP*4 < c.MaxHP {
 		hp = RedFill
 	}
-	Bar(d, textX-4, 24, cardW-textX-4, c.HP, c.MaxHP, hp)
+	Bar(d, -5, barY, cardW+10, c.HP, c.MaxHP, hp) // the caps' art is inset 5 px; this lines it up with the frame
 	if c.MaxSP > 0 {
-		Bar(d, textX-4, 37, cardW-textX-4, c.SP, c.MaxSP, BlueFill)
+		Bar(d, -5, barY+11, cardW+10, c.SP, c.MaxSP, BlueFill)
 	}
 	if hit {
 		drawHit(d, h, age)
