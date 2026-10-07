@@ -196,7 +196,7 @@ func TestCombatAndSave(t *testing.T) {
 	defer func() { blobber.OnMelee, blobber.OnKill, blobber.OnTurn = nil, nil, nil }()
 	roll = func(n int) int { return n - 1 } // always the top roll
 	defer func() { roll = rand.Intn }()
-	kinds["rat"] = kind{"001", 6, 2, 3, 5, 10, 0}
+	kinds["rat"] = kind{"zombie_rat", 6, 2, 3, 5, 10, 0}
 	blobber.ClearMonsters()
 	h.spawn("rat", 2, 1, 2) // in the party's cell: melee
 	h.AddItem(party.NewItem("steel_sword", 0))

@@ -3,7 +3,7 @@
 # id is what .map "monster" lines and the spawn opcode name; sprite is a debug sprite name or
 # cmd/blobber/assets/monsters/<sprite>.png. dmg is the top of a 1..dmg roll per hit.
 # ponytail: one attack, no resistances, no special attacks; add columns when a monster needs them.
-rat       001 6  2 3 5
+rat       zombie_rat 6  2 3 5
 bat       003 5  4 2 5
 goblin    007 12 4 5 15
 skeleton  012 16 5 6 25

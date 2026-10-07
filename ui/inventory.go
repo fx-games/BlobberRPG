@@ -43,7 +43,7 @@ var (
 
 var slotLabels = map[party.Slot]string{
 	party.RightHand: "Weapon", party.LeftHand: "Off hand", party.Ranged: "Ranged", party.Helmet: "Head",
-	party.Body: "Body", party.Shoes: "Feet", party.Robe: "Cloak", party.RingL: "Ring", party.RingR: "Ring",
+	party.Body: "Body", party.Shoes: "Feet", party.RingL: "Ring", party.RingR: "Ring",
 	party.Amulet1: "Neck", party.Amulet2: "Neck",
 }
 

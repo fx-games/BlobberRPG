@@ -28,7 +28,6 @@ const (
 	Helmet    Slot = "helmet"
 	Body      Slot = "body"
 	Shoes     Slot = "shoes"
-	Robe      Slot = "robe"
 	RingL     Slot = "ring left"
 	RingR     Slot = "ring right"
 	Amulet1   Slot = "amulet one"
@@ -36,7 +35,7 @@ const (
 )
 
 // Slots in display order.
-var Slots = []Slot{RightHand, LeftHand, Ranged, Helmet, Body, Shoes, Robe, RingL, RingR, Amulet1, Amulet2}
+var Slots = []Slot{RightHand, LeftHand, Ranged, Helmet, Body, Shoes, RingL, RingR, Amulet1, Amulet2}
 
 type Item struct {
 	Base   string // catalog name, e.g. "steel_dagger"
@@ -56,18 +55,17 @@ type Item struct {
 
 // Catalog holds the item templates scripts can name.
 var Catalog = map[string]Item{
-	"helmet":    {Kind: Armor, Slot: Helmet, Icon: "a003", AC: 1, Value: 30},
-	"leather":   {Title: "Leather Armor", Kind: Armor, Slot: Body, Icon: "a100", AC: 2, Value: 40},
-	"chainmail": {Kind: Armor, Slot: Body, Icon: "a109", AC: 4, Value: 120},
-	"plate":     {Title: "Plate Armor", Kind: Armor, Slot: Body, Icon: "a110", AC: 7, Value: 400},
-	"cloak":     {Kind: Accessory, Slot: Robe, Icon: "robe", AC: 2, Value: 60},
-	"boots":     {Kind: Armor, Slot: Shoes, Icon: "a403", AC: 1, Value: 15},
-	"robe":      {Kind: Accessory, Slot: Robe, Icon: "robe", AC: 1, Value: 25},
-	"ring":      {Kind: Accessory, Slot: RingL, Icon: "ring", AC: 1, Value: 90},
-	"amulet":    {Kind: Accessory, Slot: Amulet1, Icon: "amulet", AC: 1, Value: 70},
-	"potion":    {Kind: Consumable, Icon: "potion", Heal: 10, Value: 10},
-	"scroll":    {Kind: Scroll, Icon: "scroll", Heal: 10, Value: 15},
-	"gem":       {Kind: Misc, Icon: "gem", Value: 50},
+	"helmet":     {Kind: Armor, Slot: Helmet, Icon: "a003", AC: 1, Value: 30},
+	"leather":    {Title: "Leather Armor", Kind: Armor, Slot: Body, Icon: "a100", AC: 2, Value: 40},
+	"chainmail":  {Kind: Armor, Slot: Body, Icon: "a109", AC: 4, Value: 120},
+	"plate":      {Title: "Plate Armor", Kind: Armor, Slot: Body, Icon: "a110", AC: 7, Value: 400},
+	"boots":      {Kind: Armor, Slot: Shoes, Icon: "a403", AC: 1, Value: 15},
+	"wizard_hat": {Title: "Wizard Hat", Kind: Armor, Slot: Helmet, Icon: "wizard_hat", AC: 1, Value: 25},
+	"ring":       {Kind: Accessory, Slot: RingL, Icon: "ring", AC: 1, Value: 90},
+	"amulet":     {Kind: Accessory, Slot: Amulet1, Icon: "amulet", AC: 1, Value: 70},
+	"potion":     {Kind: Consumable, Icon: "potion", Heal: 10, Value: 10},
+	"scroll":     {Kind: Scroll, Icon: "scroll", Heal: 10, Value: 15},
+	"gem":        {Kind: Misc, Icon: "gem", Value: 50},
 }
 
 // NewItem makes an item from the catalog; unknown names become misc items with a bag icon.

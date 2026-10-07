@@ -18,6 +18,7 @@ var Materials = []struct {
 }
 
 // family is one weapon design from the 16x16 weapons pack; each material tier has its own icon.
+// Icons 96-103 are arrows, 105/109/113/117 bolts, 107-108 (+4 per tier) crossbow frames: not items.
 type family struct {
 	name       string
 	icon       int  // icon number (wNNN) of its first tier
@@ -51,13 +52,8 @@ var families = []family{
 	{"Katana", 83, 0, 5, 1, true, Weapon, RightHand, 9, 140},
 	{"Pike", 88, 1, 4, 1, false, Weapon, RightHand, 9, 70},
 	{"Glaive", 92, 1, 4, 1, false, Weapon, RightHand, 10, 110},
-	{"Javelin", 96, 1, 4, 1, false, Weapon, Ranged, 5, 15},
-	{"Kama", 100, 1, 4, 1, false, Weapon, RightHand, 5, 35},
 	{"Longbow", 104, 0, 1, 1, true, Weapon, Ranged, 6, 80},
-	{"Bolts", 105, 1, 4, 4, false, Misc, "", 0, 5},
-	{"Light Crossbow", 106, 1, 4, 4, false, Weapon, Ranged, 5, 70},
-	{"Crossbow", 107, 1, 4, 4, false, Weapon, Ranged, 7, 100},
-	{"Heavy Crossbow", 108, 1, 4, 4, false, Weapon, Ranged, 10, 160},
+	{"Crossbow", 106, 1, 4, 4, false, Weapon, Ranged, 7, 100},
 }
 
 // key is the script name of a catalog entry: "Steel Longsword" -> "steel_longsword".
