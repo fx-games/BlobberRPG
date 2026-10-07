@@ -1128,7 +1128,11 @@ func visibleCells(c cam) map[[2]int]bool {
 		if dz < 0 {
 			stepZ, tz = -1, (c.z-float64(cz))*tdz
 		}
-		for i := 0; i < 2*radius; i++ {
+		depth := 2 * radius
+		if openSky { // daylight hides nothing: rays run until they hit a wall or the map edge
+			depth = len(level) + len(level[0])
+		}
+		for i := 0; i < depth; i++ {
 			if tx < tz {
 				cx, tx = cx+stepX, tx+tdx
 			} else {
