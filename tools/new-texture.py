@@ -43,7 +43,12 @@ def api_key():
     return key
 
 
-def generate(key, prompt):
+SKY = ("A wide painted fantasy sky for a Might and Magic style RPG, seen from the ground looking at the "
+       "horizon: {desc}. Only sky and clouds, no land, no sun disc, no horizon line, no text. Even lighting "
+       "across the whole width. Painterly, saturated, crisp.")
+
+
+def generate(key, prompt, size="1024x1024"):
     if key.startswith("gemini:"):
         import importlib.util
         spec = importlib.util.spec_from_file_location("new_monster", Path(__file__).with_name("new-monster.py"))
@@ -51,7 +56,7 @@ def generate(key, prompt):
         spec.loader.exec_module(new_monster)
         new_monster.CONFIG["imageConfig"]["aspectRatio"] = "1:1"
         return new_monster.generate(key[7:], prompt)[0]
-    body = {"model": MODEL, "prompt": prompt, "size": "1024x1024", "n": 1}
+    body = {"model": MODEL, "prompt": prompt, "size": size, "n": 1}
     req = urllib.request.Request("https://api.openai.com/v1/images/generations", json.dumps(body).encode(),
                                  {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
     try:
@@ -82,13 +87,18 @@ def create(key, kind=None, name=None, desc=None):
     raw.mkdir(parents=True, exist_ok=True)
     while True:
         print(f"Generating {kind} texture…")
-        png = generate(key, PROMPT.format(kind=kind, desc=desc, view=VIEW[kind]))
-        (raw / "original.png").write_bytes(png)
-        tex = Image.open(io.BytesIO(png)).convert("RGB").resize((SIZE, SIZE), Image.LANCZOS)
+        if kind == "ceiling" and name.startswith("sky"):  # a sky is a panorama the game mirrors around itself, kept full size
+            png = generate(key, SKY.format(desc=desc), "1536x1024")
+            (raw / "original.png").write_bytes(png)
+            tex = Image.open(io.BytesIO(png)).convert("RGB")
+        else:
+            png = generate(key, PROMPT.format(kind=kind, desc=desc, view=VIEW[kind]))
+            (raw / "original.png").write_bytes(png)
+            tex = Image.open(io.BytesIO(png)).convert("RGB").resize((SIZE, SIZE), Image.LANCZOS)
         tex.save(dest)
-        preview = Image.new("RGB", (SIZE * 3, SIZE * 3))
+        preview = Image.new("RGB", (tex.width * 3, tex.height * 3))
         for i in range(9):
-            preview.paste(tex, (i % 3 * SIZE, i // 3 * SIZE))
+            preview.paste(tex, (i % 3 * tex.width, i // 3 * tex.height))
         preview.save(raw / "tiled.png")
         print(f"Saved {dest}; 3x3 tiling preview: {raw / 'tiled.png'}")
         if batch or input("Regenerate? [y/N] ").strip().lower() != "y":

@@ -160,9 +160,10 @@ var (
 	TileMarks      func() map[[2]int]int
 
 	// Skin hooks; nil keeps the plain built-in look.
-	Window    func(screen *ebiten.Image, title string, lines []string, sel int, bottom bool) // text window
-	SignImage func(lines []string) *ebiten.Image                                             // world text plaque
-	Panel     func(screen *ebiten.Image, r image.Rectangle)                                  // backdrop, e.g. the minimap
+	Window     func(screen *ebiten.Image, title string, lines []string, sel int, bottom bool) // text window
+	SignImage  func(lines []string) *ebiten.Image                                             // world text plaque
+	BoardImage func(lines []string) *ebiten.Image                                             // shop sign board (ShowSignAbove)
+	Panel      func(screen *ebiten.Image, r image.Rectangle)                                  // backdrop, e.g. the minimap
 )
 
 // OnMove is called after every step or turn with the new position and facing (0=N 1=E 2=S 3=W).
@@ -199,6 +200,9 @@ func ShowSign(x, y, dir int, lines []string) {
 // ShowSignAbove is ShowSign for a shop sign: flat on the wall ahead, in the top of the cell.
 func ShowSignAbove(x, y, dir int, lines []string) {
 	ShowSign(x, y, dir, lines)
+	if BoardImage != nil {
+		sign.tex = BoardImage(lines)
+	}
 	sign.top = true
 }
 
@@ -1231,16 +1235,23 @@ func (g *Game) drawQuad(dst *ebiten.Image, c cam, f *face) {
 	}
 }
 
-// drawSky fills the upper half with the ceiling texture as a panorama: a full turn scrolls it
-// four texture widths, so turning pans the clouds. ponytail: roll is ignored, the horizon stays at H/2.
+// drawSky fills the upper half with the ceiling texture as a panorama: the picture and its mirror
+// image side by side make one full turn, so there is no seam and the sky need not tile.
+// ponytail: roll is ignored, the horizon stays at H/2.
 func (g *Game) drawSky(dst *ebiten.Image, c cam) {
 	b := texCeil.Bounds()
 	s := float64(H) / 2 / float64(b.Dy())
 	tw := float64(b.Dx()) * s
-	off := math.Mod(c.ang/(2*math.Pi)*4*tw, tw)
-	for x := -off - tw; x < float64(W); x += tw {
+	turn := math.Mod(c.ang/(2*math.Pi)+1, 1) // 0..1 around the compass
+	x := -turn * 2 * tw
+	for i := 0; x < float64(W); i, x = i+1, x+tw {
 		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Scale(s, s)
+		if i%2 == 1 {
+			op.GeoM.Scale(-s, s)
+			op.GeoM.Translate(tw, 0)
+		} else {
+			op.GeoM.Scale(s, s)
+		}
 		op.GeoM.Translate(x, 0)
 		dst.DrawImage(texCeil, op)
 	}

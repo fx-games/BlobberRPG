@@ -253,6 +253,7 @@ func Bar(dst *ebiten.Image, x, y, w, v, maxV int, fill image.Rectangle) {
 func Install() {
 	blobber.Window = Window
 	blobber.SignImage = SignImage
+	blobber.BoardImage = BoardImage
 	blobber.Panel = Panel
 	blobber.Help = &HelpScreen{}
 }
@@ -297,6 +298,31 @@ func Window(screen *ebiten.Image, title string, lines []string, sel int, bottom 
 	op.GeoM.Scale(float64(k), float64(k))
 	op.GeoM.Translate(float64(x), float64(y))
 	screen.DrawImage(d, op)
+}
+
+// BoardImage renders a shop sign: pale letters on a dark oak board with a carved rim.
+func BoardImage(lines []string) *ebiten.Image {
+	w := 64
+	for _, l := range lines {
+		w = max(w, font.Width(l)+40)
+	}
+	h := max(40, 16*len(lines)+24)
+	img := ebiten.NewImage(w, h)
+	oak, grain, rim, edge := color.RGBA{0x5e, 0x3c, 0x1e, 255}, color.RGBA{0x4c, 0x2f, 0x16, 255}, color.RGBA{0x2e, 0x1b, 0x0c, 255}, color.RGBA{0x8a, 0x5e, 0x32, 255}
+	img.Fill(oak)
+	for y := 5; y < h-4; y += 6 { // plank grain
+		fillRect(img, rc(4, y, w-8, 1), grain)
+	}
+	for _, r := range []image.Rectangle{rc(0, 0, w, 3), rc(0, h-3, w, 3), rc(0, 0, 3, h), rc(w-3, 0, 3, h)} {
+		fillRect(img, r, rim)
+	}
+	for _, r := range []image.Rectangle{rc(3, 3, w-6, 1), rc(3, 3, 1, h-6)} { // a lit inner edge
+		fillRect(img, r, edge)
+	}
+	for i, l := range lines {
+		Print(img, l, (w-font.Width(l))/2, 12+16*i, color.RGBA{0xf2, 0xdf, 0xaa, 255})
+	}
+	return img
 }
 
 // SignImage renders world text as ink on a parchment plaque.
