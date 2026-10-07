@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Generate floor, wall or ceiling textures with the OpenAI image API.
-  python3 tools/new-texture.py
-Uses $OPENAI_API_KEY, else asks once (kept in ~/.config/blobber/openai_key). Writes
+"""Generate floor, wall or ceiling textures with the OpenAI or Gemini image API.
+  python3 tools/new-texture.py                      interactive
+  python3 tools/new-texture.py KIND NAME "DESC"...  one or more textures, no questions
+Uses $OPENAI_API_KEY or ~/.config/blobber/openai_key, else the Gemini key new-monster.py keeps. Writes
 assets/walls/<kind>_<name>.png (256x256, made seamless). A wall also gets a map character in
 assets/walls/walls.txt, so it shows up in the editor's material palette; floors and ceilings show up
 in the editor's floor/ceiling row (a map picks one with a "floor NAME" / "ceiling NAME" line).
@@ -13,6 +14,7 @@ from PIL import Image
 
 MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2")
 KEYFILE = Path.home() / ".config/blobber/openai_key"
+GEMINI_KEYFILE = Path.home() / ".config/blobber/gemini_key"
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "assets/walls"
 TABLE = OUT / "walls.txt"
@@ -33,6 +35,8 @@ def api_key():
         return os.environ["OPENAI_API_KEY"]
     if KEYFILE.exists():
         return KEYFILE.read_text().strip()
+    if GEMINI_KEYFILE.exists():
+        return "gemini:" + GEMINI_KEYFILE.read_text().strip()
     key = input("OpenAI API key: ").strip()
     KEYFILE.parent.mkdir(parents=True, exist_ok=True)
     KEYFILE.write_text(key)
@@ -41,6 +45,13 @@ def api_key():
 
 
 def generate(key, prompt):
+    if key.startswith("gemini:"):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("new_monster", Path(__file__).with_name("new-monster.py"))
+        new_monster = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(new_monster)
+        new_monster.CONFIG["imageConfig"]["aspectRatio"] = "1:1"
+        return new_monster.generate(key[7:], prompt)[0]
     body = {"model": MODEL, "prompt": prompt, "size": "1024x1024", "n": 1}
     req = urllib.request.Request("https://api.openai.com/v1/images/generations", json.dumps(body).encode(),
                                  {"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
@@ -67,15 +78,17 @@ def free_char():
     return next(c for c in string.ascii_uppercase + string.digits if c not in used)
 
 
-def create(key):
-    kind = {"f": "floor", "w": "wall", "c": "ceiling"}.get(input("Texture: [f]loor, [w]all or [c]eiling? ").strip().lower()[:1])
-    if not kind:
-        return
-    desc = input(f"Describe the {kind} (e.g. 'dirty and dusty, hard to tell stone covered with dirt from dirt covered with stone'): ").strip()
-    default = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")[:24].strip("_")
-    name = input(f"Name [{default}]: ").strip() or default
+def create(key, kind=None, name=None, desc=None):
+    batch = kind is not None
+    if not batch:
+        kind = {"f": "floor", "w": "wall", "c": "ceiling"}.get(input("Texture: [f]loor, [w]all or [c]eiling? ").strip().lower()[:1])
+        if not kind:
+            return
+        desc = input(f"Describe the {kind} (e.g. 'dirty and dusty, hard to tell stone covered with dirt from dirt covered with stone'): ").strip()
+        default = re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_")[:24].strip("_")
+        name = input(f"Name [{default}]: ").strip() or default
     dest = OUT / f"{kind}_{name}.png"
-    if dest.exists() and input(f"{dest} exists, overwrite? [y/N] ").lower() != "y":
+    if dest.exists() and not batch and input(f"{dest} exists, overwrite? [y/N] ").lower() != "y":
         return
     raw = RAW / f"{kind}_{name}"
     raw.mkdir(parents=True, exist_ok=True)
@@ -90,7 +103,7 @@ def create(key):
             preview.paste(tex, (i % 3 * SIZE, i // 3 * SIZE))
         preview.save(raw / "tiled.png")
         print(f"Saved {dest}; 3x3 tiling preview: {raw / 'tiled.png'}")
-        if input("Regenerate? [y/N] ").strip().lower() != "y":
+        if batch or input("Regenerate? [y/N] ").strip().lower() != "y":
             break
     if kind == "wall":
         rows = {l.split()[1]: l.split()[0] for l in TABLE.read_text().splitlines() if l.strip() and not l.startswith("#")}
@@ -106,6 +119,10 @@ def create(key):
 
 def main():
     key = api_key()
+    if len(sys.argv) > 1:
+        for i in range(1, len(sys.argv), 3):
+            create(key, *sys.argv[i:i + 3])
+        return
     while True:
         create(key)
         if input("Create another texture? [y/N] ").strip().lower() != "y":

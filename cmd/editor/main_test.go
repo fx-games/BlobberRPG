@@ -13,7 +13,7 @@ func TestRoundTrip(t *testing.T) {
 	os.Chdir("../..")
 	e := &editor{name: "demo"}
 	e.load()
-	if len(e.evs) != 7 || len(e.grid) != 14 {
+	if len(e.evs) != 9 || len(e.grid) != 14 {
 		t.Fatalf("events=%d rows=%d status=%q", len(e.evs), len(e.grid), e.status)
 	}
 	txt := e.evtText()

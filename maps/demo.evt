@@ -40,3 +40,12 @@ event 26,11 any use
   sound stairs
   teleport cave 1 1
 
+
+  # stairs up to town
+
+event 2,1 any
+  text "Daylight falls down a stairway."
+
+event 2,1 any use
+  sound stairs
+  teleport town 23 10

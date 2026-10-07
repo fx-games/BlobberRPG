@@ -1,6 +1,6 @@
 # World file: the campaign's name, where a new game begins, and the default party.
 title Blobber Demo
-start demo 1 1 e
+start town 12 10 n
 # hero NAME SEX RACE CLASS   (up to 6; stats are rolled like at the inn)
 hero Ann f human knight
 hero Bob m elf   monk

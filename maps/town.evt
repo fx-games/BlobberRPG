@@ -1,0 +1,40 @@
+# Vertigo-style town: stepping into a doorway opens that building. The well in the
+# middle is a landmark; the stairs in the south-east corner lead down to the dungeon.
+
+event 3,3 any
+  npc smith "Steel for the brave, at fair prices. Have a look."
+  town smith
+
+event 9,3 any
+  npc innkeeper "Sit down, sit down! Food, drink and the latest gossip."
+  town tavern
+
+event 15,3 any
+  npc priest "Peace, travellers. The temple heals the wounded and lifts curses, for an offering."
+  town temple
+
+event 21,3 any
+  npc guildmage "The guild teaches those who can pay for wisdom."
+  town guild
+
+event 3,8 any
+  npc trainer "Experience means nothing without practice. Ready to train?"
+  town trainer
+
+event 9,8 any
+  npc banker "Your gold is safe with us. Mostly."
+  town bank
+
+event 17,8 any
+  npc innkeeper "A bed for the night? The sheets are almost clean."
+  town inn
+
+event 12,6 s
+  text sign "The town well." "Stairs to the dungeon are in the south-east corner."
+
+event 23,10 any
+  text "Worn stone steps lead down into the dark."
+
+event 23,10 any use
+  sound stairs
+  teleport demo 2 1

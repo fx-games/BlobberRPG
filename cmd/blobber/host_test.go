@@ -235,7 +235,7 @@ func TestCombatAndSave(t *testing.T) {
 
 func TestWorldRestAndEnd(t *testing.T) {
 	h := newTestHost(t, "demo", 2, 1)
-	if h.start.m != "demo" || h.start.title != "Blobber Demo" || h.start.dir != 1 || len(h.start.heroes) != 3 || h.start.gold != 500 {
+	if h.start.m != "town" || h.start.title != "Blobber Demo" || h.start.dir != 0 || len(h.start.heroes) != 3 || h.start.gold != 500 {
 		t.Fatalf("world: %+v", h.start)
 	}
 	if pt := h.newParty(); len(pt.Chars) != 3 || pt.Chars[0].Name != "Ann" || pt.Chars[0].Class != "knight" || pt.Chars[0].MaxHP < 10 || pt.FindItem("chainmail") == nil {
@@ -266,4 +266,21 @@ func TestWorldRestAndEnd(t *testing.T) {
 		t.Fatalf("End should wrap the cutscene, got %T", blobber.Modal)
 	}
 	blobber.Modal = nil
+}
+
+// The town loads, and every doorway opens a building.
+func TestTown(t *testing.T) {
+	h := newTestHost(t, "town", 12, 10)
+	for _, d := range [][2]int{{3, 3}, {9, 3}, {15, 3}, {21, 3}, {3, 8}, {9, 8}, {17, 8}} {
+		blobber.Modal = nil
+		pump(h.vm, h.vm.Trigger("town", d[0], d[1], events.N))
+		if _, ok := blobber.Modal.(*ui.Shop); !ok {
+			t.Fatalf("door %v: no building opened, got %T", d, blobber.Modal)
+		}
+	}
+	blobber.Modal = nil
+	use(h, 23, 10)
+	if x, y, _ := blobber.Pos(); h.m != "demo" || x != 2 || y != 1 {
+		t.Fatalf("stairs: %s %d,%d", h.m, x, y)
+	}
 }
