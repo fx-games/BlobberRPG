@@ -3,7 +3,7 @@
   python3 tools/new-monster.py
 Asks for the Gemini API key once (kept in ~/.config/blobber/gemini_key), then for the
 monster, and loops until you say no more. Writes cmd/blobber/assets/monsters/<name>/{idle,attack,hurt}.png:
-the chroma-key background (magenta, or green for pink/purple monsters) made transparent, cropped, scaled to 384 px wide, and adds a maps/monsters.txt row. GEMINI_MODEL overrides the model."""
+the chroma-key background (magenta, or green for pink/purple monsters) made transparent, cropped (full resolution: the game resamples to one pixel density), and adds a maps/monsters.txt row. GEMINI_MODEL overrides the model."""
 import base64, io, json, os, re, sys, urllib.error, urllib.request
 from pathlib import Path
 import numpy as np
@@ -14,7 +14,6 @@ CONFIG = {"responseModalities": ["TEXT", "IMAGE"], "temperature": 0.5,  # lower 
           "imageConfig": {"aspectRatio": "3:4"}}  # tall canvas, so legs are not cut off
 KEYFILE = Path.home() / ".config/blobber/gemini_key"
 OUT = Path(__file__).resolve().parent.parent / "cmd/blobber/assets/monsters"
-WIDTH = 384
 TABLE = Path(__file__).resolve().parent.parent / "maps/monsters.txt"
 RAW = Path.home() / "Pictures/blobber-monsters"  # untouched originals; assets/monsters is embedded whole
 
@@ -79,7 +78,7 @@ def keyness(a, key):
 
 
 def cutout(png, key):
-    """Background -> transparent, cropped, WIDTH wide. When the model used the key hue (any shade
+    """Background -> transparent, cropped. When the model used the key hue (any shade
     of it), every pixel is keyed by how much of that hue it has, enclosed pockets and glows over
     the background included. Otherwise (e.g. it painted white) the border colour is keyed, but
     only where it touches the border. Edges get partial alpha with the background subtracted."""
@@ -112,12 +111,11 @@ def cutout(png, key):
 
 
 def frame(imgs):
-    """Crops all poses with one shared box and scales them alike, so the monster keeps its size
-    and place between poses (the engine sizes each frame by its image)."""
+    """Crops all poses with one shared box, so the monster keeps its size and place between poses.
+    No downscaling: the game resamples every monster to its own pixel density."""
     l, t, r, b = zip(*(i.getbbox() for i in imgs))
     box = (min(l), min(t), max(r), max(b))
-    w, h = box[2] - box[0], box[3] - box[1]
-    return [i.crop(box).resize((WIDTH, round(h * WIDTH / w)), Image.LANCZOS) for i in imgs]
+    return [i.crop(box) for i in imgs]
 
 
 def create(key):

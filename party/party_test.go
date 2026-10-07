@@ -217,3 +217,10 @@ func TestSpellTableAndConditions(t *testing.T) {
 		t.Fatal("cure clears poison")
 	}
 }
+
+func TestArmorCatalog(t *testing.T) {
+	it := NewItem("steel_cuirass", 0)
+	if it.Slot != Body || it.AC != 5 || it.Icon != "a110" || Tier(*it) != 2 {
+		t.Fatalf("steel cuirass: %+v", *it)
+	}
+}
