@@ -61,10 +61,15 @@ func Flats(kind string) []string {
 
 var flatNames [2]string // the current map's floor and ceiling ("" = default)
 
+// openSky: the ceiling is a sky_* texture, drawn as a backdrop behind everything instead of as
+// ceiling tiles, panning with the view angle.
+var openSky bool
+
 // SetFlats makes floor and ceiling (names from Flats; "" = the default textures) the current
 // map's. Hosts call it on every map change; it holds across GenTextures.
 func SetFlats(floor, ceiling string) {
 	flatNames = [2]string{floor, ceiling}
+	openSky = strings.HasPrefix(ceiling, "sky")
 	if defFloor != nil {
 		texFloor, texCeil = FlatTexture("floor", floor), FlatTexture("ceiling", ceiling)
 	}

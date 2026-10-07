@@ -1151,6 +1151,9 @@ func (g *Game) light(c cam, v *vert) {
 		v.r, v.g, v.b = v.r+a*r, v.g+a*gg, v.b+a*b
 	}
 	v.r, v.g, v.b = 0.03, 0.03, 0.04
+	if openSky { // daylight: the sun is the light, the torch barely matters
+		v.r, v.g, v.b = 0.85, 0.82, 0.75
+	}
 	add(c.x, 0, c.z, g.torch+min(1.5, lightLeft), 1, 0.85, 0.65)
 	for _, e := range ents {
 		if e.light > 0 {
@@ -1217,6 +1220,21 @@ func (g *Game) drawQuad(dst *ebiten.Image, c cam, f *face) {
 	}
 }
 
+// drawSky fills the upper half with the ceiling texture as a panorama: a full turn scrolls it
+// four texture widths, so turning pans the clouds. ponytail: roll is ignored, the horizon stays at H/2.
+func (g *Game) drawSky(dst *ebiten.Image, c cam) {
+	b := texCeil.Bounds()
+	s := float64(H) / 2 / float64(b.Dy())
+	tw := float64(b.Dx()) * s
+	off := math.Mod(c.ang/(2*math.Pi)*4*tw, tw)
+	for x := -off - tw; x < float64(W); x += tw {
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Scale(s, s)
+		op.GeoM.Translate(x, 0)
+		dst.DrawImage(texCeil, op)
+	}
+}
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	defer maybeShot(screen)
 	if g.atlasView {
@@ -1239,6 +1257,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		dst = g.scene
 	}
 	dst.Fill(color.Black)
+	if openSky {
+		g.drawSky(dst, c)
+	}
 
 	var faces []*face
 	var bias float64 // sorts faces this much nearer than their centre
@@ -1254,7 +1275,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		cx, cy := cell[0], cell[1]
 		x0, z0, x1, z1 := float64(cx), float64(cy), float64(cx+1), float64(cy+1)
 		q(vert{x0, 0.5, z0, 0, 0, 0, 0, 0}, vert{x1, 0.5, z0, 1, 0, 0, 0, 0}, vert{x1, 0.5, z1, 1, 1, 0, 0, 0}, vert{x0, 0.5, z1, 0, 1, 0, 0, 0}, texFloor, 3)
-		q(vert{x0, -0.5, z0, 0, 0, 0, 0, 0}, vert{x1, -0.5, z0, 1, 0, 0, 0, 0}, vert{x1, -0.5, z1, 1, 1, 0, 0, 0}, vert{x0, -0.5, z1, 0, 1, 0, 0, 0}, texCeil, 3)
+		if !openSky {
+			q(vert{x0, -0.5, z0, 0, 0, 0, 0, 0}, vert{x1, -0.5, z0, 1, 0, 0, 0, 0}, vert{x1, -0.5, z1, 1, 1, 0, 0, 0}, vert{x0, -0.5, z1, 0, 1, 0, 0, 0}, texCeil, 3)
+		}
 		if Cell(cx, cy) == Door { // a door quad across the cell, square to the corridor it sits in
 			zm, xm := (z0+z1)/2, (x0+x1)/2
 			if wall(cx-1, cy) && wall(cx+1, cy) {
