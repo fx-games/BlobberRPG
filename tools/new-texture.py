@@ -3,13 +3,12 @@
   python3 tools/new-texture.py                      interactive
   python3 tools/new-texture.py KIND NAME "DESC"...  one or more textures, no questions
 Uses $OPENAI_API_KEY or ~/.config/blobber/openai_key, else the Gemini key new-monster.py keeps. Writes
-assets/walls/<kind>_<name>.png (256x256, made seamless). A wall also gets a map character in
+assets/walls/<kind>_<name>.png (256x256; the model is asked for seamless output, nothing is post-processed). A wall also gets a map character in
 assets/walls/walls.txt, so it shows up in the editor's material palette; floors and ceilings show up
 in the editor's floor/ceiling row (a map picks one with a "floor NAME" / "ceiling NAME" line).
 OPENAI_IMAGE_MODEL overrides the model."""
 import base64, io, json, os, re, string, sys, urllib.error, urllib.request
 from pathlib import Path
-import numpy as np
 from PIL import Image
 
 MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2")
@@ -62,17 +61,6 @@ def generate(key, prompt):
         sys.exit(f"OpenAI error {e.code}: {e.read().decode()}")
 
 
-def seamless(img):
-    """Cross-fades the image with a copy shifted by half its size: the copy's edges wrap cleanly,
-    and it only shows near the edges, so the original's own seam stays hidden."""
-    a = np.asarray(img.convert("RGB"), dtype=np.float32)
-    h, w, _ = a.shape
-    shifted = np.roll(a, (h // 2, w // 2), axis=(0, 1))
-    ramp = lambda n: 1 - np.abs(np.linspace(-1, 1, n))  # 0 at the edges, 1 in the middle
-    wgt = np.clip(np.minimum.outer(ramp(h), ramp(w)) * 3, 0, 1)[..., None]
-    return Image.fromarray((a * wgt + shifted * (1 - wgt)).astype(np.uint8))
-
-
 def free_char():
     used = RESERVED | {l.split()[0] for l in TABLE.read_text().splitlines() if l.strip() and not l.startswith("#")}
     return next(c for c in string.ascii_uppercase + string.digits if c not in used)
@@ -96,7 +84,7 @@ def create(key, kind=None, name=None, desc=None):
         print(f"Generating {kind} texture…")
         png = generate(key, PROMPT.format(kind=kind, desc=desc, view=VIEW[kind]))
         (raw / "original.png").write_bytes(png)
-        tex = seamless(Image.open(io.BytesIO(png))).resize((SIZE, SIZE), Image.LANCZOS)
+        tex = Image.open(io.BytesIO(png)).convert("RGB").resize((SIZE, SIZE), Image.LANCZOS)
         tex.save(dest)
         preview = Image.new("RGB", (SIZE * 3, SIZE * 3))
         for i in range(9):

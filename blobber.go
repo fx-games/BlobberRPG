@@ -1279,12 +1279,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			q(vert{x0, -0.5, z0, 0, 0, 0, 0, 0}, vert{x1, -0.5, z0, 1, 0, 0, 0, 0}, vert{x1, -0.5, z1, 1, 1, 0, 0, 0}, vert{x0, -0.5, z1, 0, 1, 0, 0, 0}, texCeil, 3)
 		}
 		if Cell(cx, cy) == Door { // a door quad across the cell, square to the corridor it sits in
+			// Sorted a little nearer than the doorway's side walls, which share its centre: otherwise
+			// the two swap order as the camera sways and the walls flicker through the door.
+			bias = 0.25
 			zm, xm := (z0+z1)/2, (x0+x1)/2
 			if wall(cx-1, cy) && wall(cx+1, cy) {
 				q(vert{x0, -0.5, zm, 0, 0, 0, 0, 0}, vert{x1, -0.5, zm, 1, 0, 0, 0, 0}, vert{x1, 0.5, zm, 1, 1, 0, 0, 0}, vert{x0, 0.5, zm, 0, 1, 0, 0, 0}, mats[Door][0], 3)
 			} else {
 				q(vert{xm, -0.5, z0, 0, 0, 0, 0, 0}, vert{xm, -0.5, z1, 1, 0, 0, 0, 0}, vert{xm, 0.5, z1, 1, 1, 0, 0, 0}, vert{xm, 0.5, z0, 0, 1, 0, 0, 0}, mats[Door][0], 3)
 			}
+			bias = 0
 		}
 		// wall faces on the four sides of this floor cell, textured by how they face the camera
 		type side struct{ ax, az, bx, bz, nx, nz float64 }
