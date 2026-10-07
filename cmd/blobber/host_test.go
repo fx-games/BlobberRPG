@@ -268,14 +268,21 @@ func TestWorldRestAndEnd(t *testing.T) {
 	blobber.Modal = nil
 }
 
-// The town loads, and every doorway opens a building.
+// The town loads; F in front of each shop's stairs opens it, just facing them only shows the sign.
 func TestTown(t *testing.T) {
 	h := newTestHost(t, "town", 12, 10)
-	for _, d := range [][2]int{{3, 3}, {9, 3}, {15, 3}, {21, 3}, {3, 8}, {9, 8}, {17, 8}} {
+	for _, d := range []struct {
+		x, y int
+		f    events.Facing
+	}{{3, 4, events.N}, {9, 4, events.N}, {15, 4, events.N}, {21, 4, events.N}, {3, 7, events.S}, {9, 7, events.S}, {17, 7, events.S}} {
 		blobber.Modal = nil
-		pump(h.vm, h.vm.Trigger("town", d[0], d[1], events.N))
+		pump(h.vm, h.vm.Trigger("town", d.x, d.y, d.f))
+		if blobber.Modal != nil {
+			t.Fatalf("stairs %v: facing them opened %T", d, blobber.Modal)
+		}
+		pump(h.vm, h.vm.Use("town", d.x, d.y, d.f))
 		if _, ok := blobber.Modal.(*ui.Shop); !ok {
-			t.Fatalf("door %v: no building opened, got %T", d, blobber.Modal)
+			t.Fatalf("stairs %v: no building opened, got %T", d, blobber.Modal)
 		}
 	}
 	blobber.Modal = nil

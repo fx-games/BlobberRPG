@@ -4,3 +4,4 @@ A wall_ice_cave
 C wall_town_house
 E wall_town_temple
 F wall_town_wall
+G wall_stairs_up

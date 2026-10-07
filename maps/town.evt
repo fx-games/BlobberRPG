@@ -1,31 +1,52 @@
-# Vertigo-style town: stepping into a doorway opens that building. The well in the
-# middle is a landmark; the stairs in the south-east corner lead down to the dungeon.
+# Vertigo-style town: each shop is a stairs-up wall with its sign above. Facing the stairs shows
+# the sign; F climbs them and opens the building. Stairs down to the dungeon are in the south-east corner.
 
-event 3,3 any
+event 3,4 n
+  text shopsign "BLACKSMITH"
+
+event 3,4 n use
   npc smith "Steel for the brave, at fair prices. Have a look."
   town smith
 
-event 9,3 any
+event 9,4 n
+  text shopsign "TAVERN"
+
+event 9,4 n use
   npc innkeeper "Sit down, sit down! Food, drink and the latest gossip."
   town tavern
 
-event 15,3 any
+event 15,4 n
+  text shopsign "TEMPLE"
+
+event 15,4 n use
   npc priest "Peace, travellers. The temple heals the wounded and lifts curses, for an offering."
   town temple
 
-event 21,3 any
+event 21,4 n
+  text shopsign "MAGE GUILD"
+
+event 21,4 n use
   npc guildmage "The guild teaches those who can pay for wisdom."
   town guild
 
-event 3,8 any
+event 3,7 s
+  text shopsign "TRAINING GROUNDS"
+
+event 3,7 s use
   npc trainer "Experience means nothing without practice. Ready to train?"
   town trainer
 
-event 9,8 any
+event 9,7 s
+  text shopsign "BANK"
+
+event 9,7 s use
   npc banker "Your gold is safe with us. Mostly."
   town bank
 
-event 17,8 any
+event 17,7 s
+  text shopsign "INN"
+
+event 17,7 s use
   npc innkeeper "A bed for the night? The sheets are almost clean."
   town inn
 

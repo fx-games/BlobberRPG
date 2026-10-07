@@ -324,9 +324,12 @@ func pump(vm *events.VM, w *events.Wait) {
 				ask(vm, w)
 				return
 			}
-			lines := w.Lines
 			x, y, dir := blobber.Pos()
-			blobber.ShowSign(x, y, dir, lines)
+			if w.Style == "shopsign" { // on the wall ahead, above a shop's stairs
+				blobber.ShowSignAbove(x, y, dir, w.Lines)
+			} else {
+				blobber.ShowSign(x, y, dir, w.Lines)
+			}
 		default:
 			if blobber.OnPromptAnswer == nil { // headless (tests): auto-answer
 				continue

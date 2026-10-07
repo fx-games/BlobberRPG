@@ -174,6 +174,7 @@ var OnTeleportMenu func()
 
 // sign is world text: a self-lit billboard sitting as far ahead of its cell center as the eye sits behind.
 var sign struct {
+	top       bool // on the wall, top of the cell (shop sign) rather than mid-cell at eye height
 	x, y, dir int
 	tex       *ebiten.Image
 }
@@ -195,7 +196,13 @@ func ShowSign(x, y, dir int, lines []string) {
 	sign.x, sign.y, sign.dir, sign.tex = x, y, dir, img
 }
 
-func ClearSign() { sign.tex = nil }
+// ShowSignAbove is ShowSign for a shop sign: flat on the wall ahead, in the top of the cell.
+func ShowSignAbove(x, y, dir int, lines []string) {
+	ShowSign(x, y, dir, lines)
+	sign.top = true
+}
+
+func ClearSign() { sign.tex, sign.top = nil, false }
 
 // Map cells: '.' is floor, anything else is a wall whose character picks the material (see mats).
 func wall(x, y int) bool {
@@ -203,7 +210,7 @@ func wall(x, y int) bool {
 	return ch != '.' && ch != Door
 }
 
-// Door is the map character of an open doorway: passable, drawn as a door across the cell.
+// Door is the map character of an open doorway: a passable gap in a wall.
 // Locked is a door that is still a wall; scripts open it with `altercell X Y D`.
 const Door, Locked = 'D', 'L'
 
@@ -1282,18 +1289,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if !openSky {
 			q(vert{x0, -0.5, z0, 0, 0, 0, 0, 0}, vert{x1, -0.5, z0, 1, 0, 0, 0, 0}, vert{x1, -0.5, z1, 1, 1, 0, 0, 0}, vert{x0, -0.5, z1, 0, 1, 0, 0, 0}, texCeil, 3)
 		}
-		if Cell(cx, cy) == Door { // a door quad across the cell, square to the corridor it sits in
-			// Sorted a little nearer than the doorway's side walls, which share its centre: otherwise
-			// the two swap order as the camera sways and the walls flicker through the door.
-			bias = 0.25
-			zm, xm := (z0+z1)/2, (x0+x1)/2
-			if wall(cx-1, cy) && wall(cx+1, cy) {
-				q(vert{x0, -0.5, zm, 0, 0, 0, 0, 0}, vert{x1, -0.5, zm, 1, 0, 0, 0, 0}, vert{x1, 0.5, zm, 1, 1, 0, 0, 0}, vert{x0, 0.5, zm, 0, 1, 0, 0, 0}, mats[Door][0], 3)
-			} else {
-				q(vert{xm, -0.5, z0, 0, 0, 0, 0, 0}, vert{xm, -0.5, z1, 1, 0, 0, 0, 0}, vert{xm, 0.5, z1, 1, 1, 0, 0, 0}, vert{xm, 0.5, z0, 0, 1, 0, 0, 0}, mats[Door][0], 3)
-			}
-			bias = 0
-		}
 		// wall faces on the four sides of this floor cell, textured by how they face the camera
 		type side struct{ ax, az, bx, bz, nx, nz float64 }
 		for i, s := range []side{{x0, z0, x1, z0, 0, 1}, {x1, z0, x1, z1, -1, 0}, {x1, z1, x0, z1, 0, -1}, {x0, z1, x0, z0, 1, 0}} {
@@ -1361,12 +1356,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	if sign.tex != nil {
 		d := dirs[sign.dir]
-		sx, sz := float64(sign.x)+0.5+float64(d[0])*eyeBack, float64(sign.y)+0.5+float64(d[1])*eyeBack
+		fwd, y0 := eyeBack, 0.0 // mid-cell, centred at eye height
 		b := sign.tex.Bounds()
 		wid, hgt := float64(b.Dx())/400, float64(b.Dy())/400 // 400 texture px per tile
+		if sign.top {
+			fwd, y0 = 0.48, -0.5+0.04+hgt/2 // just off the wall ahead, hanging from the top
+		}
+		sx, sz := float64(sign.x)+0.5+float64(d[0])*fwd, float64(sign.y)+0.5+float64(d[1])*fwd
 		hx, hz := c.rtx*wid/2, c.rtz*wid/2
-		q(vert{sx - hx, -hgt / 2, sz - hz, 0, 0, 0, 0, 0}, vert{sx + hx, -hgt / 2, sz + hz, 1, 0, 0, 0, 0},
-			vert{sx + hx, hgt / 2, sz + hz, 1, 1, 0, 0, 0}, vert{sx - hx, hgt / 2, sz - hz, 0, 1, 0, 0, 0}, sign.tex, 1)
+		q(vert{sx - hx, y0 - hgt/2, sz - hz, 0, 0, 0, 0, 0}, vert{sx + hx, y0 - hgt/2, sz + hz, 1, 0, 0, 0, 0},
+			vert{sx + hx, y0 + hgt/2, sz + hz, 1, 1, 0, 0, 0}, vert{sx - hx, y0 + hgt/2, sz - hz, 0, 1, 0, 0, 0}, sign.tex, 1)
 	}
 	// ponytail: painter's sort by face-center depth; z-buffer if overlap artifacts show up.
 	// Floor/ceiling first: at eye height they can't occlude walls or billboards, but their centers can sort nearer.

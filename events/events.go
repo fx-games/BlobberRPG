@@ -502,7 +502,7 @@ func (vm *VM) exec(fr *frame, in instr) *Wait {
 
 func isStyle(s string) bool {
 	switch s {
-	case "main", "door", "doorlarge", "sign", "signlarge", "stat", "bottom", "large":
+	case "main", "door", "doorlarge", "sign", "signlarge", "shopsign", "stat", "bottom", "large":
 		return true
 	}
 	return false
