@@ -1838,8 +1838,8 @@ var (
 // Options are the settings on the Options page.
 type Options struct {
 	Smooth, Dither, Fullscreen, SmoothMonsters, NormalMaps bool
-	Torch                                      float64
-	Speed                                      float64 // walk and turn speed, minSpeed to maxSpeed times the normal
+	Torch                                                  float64
+	Speed                                                  float64 // walk and turn speed, minSpeed to maxSpeed times the normal
 }
 
 const minSpeed, maxSpeed = 0.5, 2.0
