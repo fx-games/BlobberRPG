@@ -140,6 +140,7 @@ var Bump float    // normal mapping strength
 var T vec3        // the face's u and v directions and normal, in camera space (x right, y down, z ahead)
 var B vec3
 var N vec3
+var Lamp vec3     // the moving light reaching this face most, in camera space
 
 func tex(uv vec2) vec4 { return imageSrc0At(imageSrc0Origin() + fract(uv)*imageSrc0Size()) }
 
@@ -171,6 +172,11 @@ func shade(c vec3, dark, inc float) vec3 {
 	return mix(c, fog, clamp(clamp((dark-0.7)/0.3, 0, 1)*0.6+inc, 0, 1))
 }
 
+// relief is how much slopes s turn the surface toward light direction l, relative to the flat face.
+func relief(s vec2, l vec3) float {
+	return (s.x*dot(l, T) + s.y*dot(l, B)) / max(dot(N, l), 0.3)
+}
+
 func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	z := 1 / custom.z
 	uv := custom.xy * z
@@ -194,16 +200,18 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	if HasLit > 0 {
 		lit = imageSrc2At(imageSrc0Origin() + fract(uv)*imageSrc0Size()).r
 	}
+	// the moving lights (vertex colour) push the darkness back and tint what they reach
+	near := clamp(max(color.r, max(color.g, color.b)), 0, 1)
 	if HasBump > 0 {
 		// normal mapping, lit by the torch at the eye: a slope facing the light brightens, one facing
 		// away darkens, by how far the tilt turns the surface toward the light relative to the flat face
 		// (linear in the slope, so on average the surface keeps its brightness)
 		s := imageSrc1At(imageSrc0Origin()+fract(uv)*imageSrc0Size()).rg*2 - 1
-		l := -normalize(vec3(x, custom.w*z, z))
-		rgb *= clamp(1+Bump*(s.x*dot(l, T)+s.y*dot(l, B))/max(dot(N, l), 0.3), 0.4, 1.6)
+		p := vec3(x, custom.w*z, z)
+		// the torch at the eye, and where a lantern reaches, that lantern
+		r := mix(relief(s, -normalize(p)), relief(s, normalize(Lamp-p)), near)
+		rgb *= clamp(1+Bump*r, 0.4, 1.6)
 	}
-	// the moving lights (vertex colour) push the darkness back and tint what they reach
-	near := clamp(max(color.r, max(color.g, color.b)), 0, 1)
 	out := shade(rgb, darkness(dist, Mul*(1-0.7*lit)*(1-near)), Inc*(1-lit)*(1-near)) + rgb*color.rgb*0.3
 	return vec4(out*c.a, c.a)
 }
@@ -243,6 +251,26 @@ func frame(c cam, f *face) (t, b, n []float32, ok bool) {
 	return f32(tv, 1), f32(bv, 1), f32(nv, nl), true
 }
 
+// lamp is the moving light that reaches face f's centre most, in camera space (the eye when none does).
+func lamp(c cam, f *face) []float32 {
+	var x, y, z float64
+	for _, v := range f.v {
+		x, y, z = x+v.x/4, y+v.y/4, z+v.z/4
+	}
+	best, out := 0.0, []float32{0, 0, 0}
+	for _, e := range ents {
+		if e.light <= 0 {
+			continue
+		}
+		d := (x-e.x)*(x-e.x) + (y-e.y)*(y-e.y) + (z-e.z)*(z-e.z)
+		if a := e.light / (1 + 0.5*d*d/e.light); a > best { // as light() weighs it
+			dx, dz := e.x-c.x, e.z-c.z
+			best, out = a, []float32{float32(dx*c.rtx + dz*c.rtz), float32(e.y), float32(dx*c.fwx + dz*c.fwz)}
+		}
+	}
+	return out
+}
+
 // faceOptions sets the texture shader's images and uniforms for face f seen from c.
 func (g *Game) faceOptions(c cam, f *face) *ebiten.DrawTrianglesShaderOptions {
 	op := &ebiten.DrawTrianglesShaderOptions{}
@@ -255,6 +283,7 @@ func (g *Game) faceOptions(c cam, f *face) *ebiten.DrawTrianglesShaderOptions {
 	if s := slopes[f.tex]; s != nil && f.mode == modeShaded {
 		if t, b, n, ok := frame(c, f); ok {
 			op.Images[1], u["HasBump"], u["Bump"], u["T"], u["B"], u["N"] = s, float32(1), float32(bump*2), t, b, n
+			u["Lamp"] = lamp(c, f)
 		}
 	}
 	if f.mode == modeGlow {
