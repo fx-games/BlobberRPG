@@ -1,5 +1,6 @@
 // Blobber: a first-person grid crawler ("gridder") in pure 2D, Deepnight style.
-// No 3D pipeline: the view is grid-locked and every surface is a sprite baked per cell offset (flip.go).
+// No 3D pipeline: every surface is a flat quad, transformed by hand, painted far-to-near.
+// The texture shader adds Deepnight's look (look.go): heightmap extrusion, stepped darkness, light maps.
 package blobber
 
 import (
@@ -334,7 +335,6 @@ func GenTextures() { genTextures() }
 func genTextures() {
 	rng.Seed(7)
 	atlas = nil
-	clearBakes()
 	stoneMat := func(bw, bh int, offset bool, c [2][3]float64) *mat {
 		img, hei := genStone(bw, bh, offset, c[0], c[1], 0.3, -1)
 		return &mat{img: img, hei: hei}
@@ -880,20 +880,12 @@ type Game struct {
 	torch                                 float64
 	sel                                   int
 	scene                                 *ebiten.Image
-	view, prev, comp                      *ebiten.Image // RW x RH: this frame, the frame before a move, the blend
-	trans                                 int           // transition kind of the current move
-	closeWall                             float64       // strafe: 1 with a wall right ahead, 0 with none in 3 cells
-	shader                                *ebiten.Shader
+	shader, texShader                     *ebiten.Shader
 }
 
 var dirs = [4][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
 
 func (g *Game) startMove(nx, ny, ndir int, sway float64) {
-	g.trans = g.transitionFor(nx, ny, ndir)
-	if g.view != nil { // keep the last frame to warp away from
-		g.prev.Clear()
-		g.prev.DrawImage(g.view, nil)
-	}
 	g.fx, g.fz, g.fa = g.tx, g.tz, g.ta
 	g.dur = 0.28
 	if nx == g.x && ny == g.y {
@@ -1102,6 +1094,25 @@ func (g *Game) updateMenu() bool {
 
 // ---------- rendering ----------
 
+type vert struct{ x, y, z, u, v, r, g, b float64 } // world pos, uv, light
+
+type face struct {
+	v    [4]vert
+	tex  *ebiten.Image
+	dist float64
+	sub  int
+	m    *mat    // wall material: heightmap extrusion and light map
+	inc  float64 // constant extra fade toward the fog (look.go)
+	mode int     // modeShaded, modeUnlit or modeGlow
+	tint [3]float64
+	pass int // 0 floor and ceiling, 1 light circles on them, 2 the rest, sorted far to near
+}
+
+func lerp(a, b vert, t float64) vert {
+	return vert{a.x + (b.x-a.x)*t, a.y + (b.y-a.y)*t, a.z + (b.z-a.z)*t, a.u + (b.u-a.u)*t, a.v + (b.v-a.v)*t,
+		a.r + (b.r-a.r)*t, a.g + (b.g-a.g)*t, a.b + (b.b-a.b)*t}
+}
+
 // camera for this frame
 type cam struct{ x, z, ang, roll, fwx, fwz, rtx, rtz float64 }
 
@@ -1166,6 +1177,101 @@ func visibleCells(c cam) map[[2]int]bool {
 	return cells
 }
 
+// light adds the moving lights' colour at v; distance darkness is the shader's (look.go).
+func (g *Game) light(v *vert) {
+	v.r, v.g, v.b = 0, 0, 0
+	for _, e := range ents {
+		if e.light > 0 {
+			d := (v.x-e.x)*(v.x-e.x) + (v.y-e.y)*(v.y-e.y) + (v.z-e.z)*(v.z-e.z)
+			a := e.light / (1 + 0.5*d*d/e.light)
+			v.r, v.g, v.b = v.r+a*e.lr, v.g+a*e.lg, v.b+a*e.lb
+		}
+	}
+	v.r, v.g, v.b = math.Min(1, v.r), math.Min(1, v.g), math.Min(1, v.b)
+}
+
+var white = genSolid(color.RGBA{255, 255, 255, 255})
+
+// drawQuad subdivides, lights, transforms, near-clips and projects one textured quad.
+func (g *Game) drawQuad(dst *ebiten.Image, c cam, f *face) {
+	n := f.sub
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			s0, s1, t0, t1 := float64(i)/float64(n), float64(i+1)/float64(n), float64(j)/float64(n), float64(j+1)/float64(n)
+			bil := func(s, t float64) vert {
+				a, b := lerp(f.v[0], f.v[1], s), lerp(f.v[3], f.v[2], s)
+				v := lerp(a, b, t)
+				switch f.mode {
+				case modeShaded:
+					g.light(&v)
+				case modeGlow:
+					v.r, v.g, v.b = f.tint[0], f.tint[1], f.tint[2]
+				}
+				// to camera space (x right, y down, z forward)
+				dx, dz := v.x-c.x, v.z-c.z
+				v.x, v.z = dx*c.rtx+dz*c.rtz, dx*c.fwx+dz*c.fwz
+				return v
+			}
+			poly := []vert{bil(s0, t0), bil(s1, t0), bil(s1, t1), bil(s0, t1)}
+			// clip against near plane
+			var out []vert
+			for k := range poly {
+				a, b := poly[k], poly[(k+1)%4]
+				if a.z >= near {
+					out = append(out, a)
+				}
+				if (a.z >= near) != (b.z >= near) {
+					out = append(out, lerp(a, b, (near-a.z)/(b.z-a.z)))
+				}
+			}
+			if len(out) < 3 {
+				continue
+			}
+			cr, sr := math.Cos(c.roll), math.Sin(c.roll)
+			vs := make([]ebiten.Vertex, len(out))
+			for k, v := range out {
+				iz := 1 / v.z
+				px, py := v.x*focal*iz, v.y*focal*iz
+				// perspective-correct: u/z, v/z, 1/z in Custom0..2 (SrcX/Y get the atlas origin added, so they can't carry it)
+				a := float32(1)
+				if f.mode == modeGlow {
+					a = 0
+				}
+				vs[k] = ebiten.Vertex{DstX: float32(float64(W)/2 + px*cr - py*sr), DstY: float32(float64(H)/2 + px*sr + py*cr),
+					ColorR: float32(v.r), ColorG: float32(v.g), ColorB: float32(v.b), ColorA: a,
+					Custom0: float32(v.u * iz), Custom1: float32(v.v * iz), Custom2: float32(iz), Custom3: float32(v.y * iz)}
+			}
+			var idx []uint16
+			for k := 1; k+1 < len(out); k++ {
+				idx = append(idx, 0, uint16(k), uint16(k+1))
+			}
+			dst.DrawTrianglesShader(vs, idx, g.texShader, g.faceOptions(c, f))
+		}
+	}
+}
+
+// drawSky fills the upper half with the ceiling texture as a panorama: the picture and its mirror
+// image side by side make one full turn, so there is no seam and the sky need not tile.
+// ponytail: roll is ignored, the horizon stays at H/2.
+func (g *Game) drawSky(dst *ebiten.Image, c cam) {
+	b := texCeil.Bounds()
+	s := float64(H) / 2 / float64(b.Dy())
+	tw := float64(b.Dx()) * s
+	turn := math.Mod(c.ang/(2*math.Pi)+1, 1) // 0..1 around the compass
+	x := -turn * 2 * tw
+	for i := 0; x < float64(W); i, x = i+1, x+tw {
+		op := &ebiten.DrawImageOptions{}
+		if i%2 == 1 {
+			op.GeoM.Scale(-s, s)
+			op.GeoM.Translate(tw, 0)
+		} else {
+			op.GeoM.Scale(s, s)
+		}
+		op.GeoM.Translate(x, 0)
+		dst.DrawImage(texCeil, op)
+	}
+}
+
 func (g *Game) Draw(screen *ebiten.Image) {
 	defer maybeShot(screen)
 	if g.atlasView {
@@ -1183,23 +1289,160 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawMap(screen, c)
 		return
 	}
-	if g.view == nil {
-		g.view, g.prev, g.comp = ebiten.NewImage(RW, RH), ebiten.NewImage(RW, RH), ebiten.NewImage(RW, RH)
-	}
-	g.drainBakes()
-	g.drawWorld(g.view)
-	out := g.view
-	if g.moving && g.t < 1 {
-		g.drawTransition(g.comp, g.t)
-		out = g.comp
-	}
 	dst := screen
 	if g.dither {
 		dst = g.scene
 	}
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(float64(W)/RW, float64(H)/RH)
-	dst.DrawImage(out, op)
+	dst.Fill(fogCol)
+	if openSky {
+		g.drawSky(dst, c)
+	}
+
+	var faces []*face
+	var bias float64 // sorts faces this much nearer than their centre
+	q := func(a, b, cc, d vert, t *ebiten.Image, sub int) *face {
+		f := &face{v: [4]vert{a, b, cc, d}, tex: t, sub: sub, pass: 2}
+		mx, mz := (a.x+cc.x)/2-c.x, (a.z+cc.z)/2-c.z
+		f.dist = mx*c.fwx + mz*c.fwz - bias
+		if f.dist > -1 {
+			faces = append(faces, f)
+		}
+		return f
+	}
+	// glow adds an additive light billboard w wide centred at (x, y, z), tinted col at alpha and
+	// darkened by distance times dm; flat lays it on the floor or ceiling instead (en_LightGlow).
+	glow := func(x, y, z, w float64, col [3]float64, alpha, dm float64, flat bool) {
+		dx, dz := x-c.x, z-c.z
+		lat, dep := dx*c.rtx+dz*c.rtz, dx*c.fwx+dz*c.fwz
+		k := alpha * (1 - darkness(math.Hypot(lat*1.5, dep*0.7)+(0.5-y)*1.8, g.darkMul())*dm)
+		tint := [3]float64{col[0] * k, col[1] * k, col[2] * k}
+		r := w / 2
+		var f *face
+		if flat {
+			f = q(vert{x - r, y, z - r, 0, 0, 0, 0, 0}, vert{x + r, y, z - r, 1, 0, 0, 0, 0}, vert{x + r, y, z + r, 1, 1, 0, 0, 0}, vert{x - r, y, z + r, 0, 1, 0, 0, 0}, texGlow, 1)
+			f.pass = 1
+		} else {
+			hx, hz := c.rtx*r, c.rtz*r
+			f = q(vert{x - hx, y - r, z - hz, 0, 0, 0, 0, 0}, vert{x + hx, y - r, z + hz, 1, 0, 0, 0, 0}, vert{x + hx, y + r, z + hz, 1, 1, 0, 0, 0}, vert{x - hx, y + r, z - hz, 0, 1, 0, 0, 0}, texGlow, 1)
+		}
+		f.mode, f.tint = modeGlow, tint
+	}
+	for cell := range visibleCells(c) {
+		cx, cy := cell[0], cell[1]
+		x0, z0, x1, z1 := float64(cx), float64(cy), float64(cx+1), float64(cy+1)
+		f := q(vert{x0, 0.5, z0, 0, 0, 0, 0, 0}, vert{x1, 0.5, z0, 1, 0, 0, 0, 0}, vert{x1, 0.5, z1, 1, 1, 0, 0, 0}, vert{x0, 0.5, z1, 0, 1, 0, 0, 0}, texFloor, 3)
+		f.pass, f.inc = 0, 0.4
+		if !openSky {
+			f := q(vert{x0, -0.5, z0, 0, 0, 0, 0, 0}, vert{x1, -0.5, z0, 1, 0, 0, 0, 0}, vert{x1, -0.5, z1, 1, 1, 0, 0, 0}, vert{x0, -0.5, z1, 0, 1, 0, 0, 0}, texCeil, 3)
+			f.pass, f.inc = 0, 0.4
+		}
+		// wall faces on the four sides of this floor cell, textured by how they face the camera
+		type side struct{ ax, az, bx, bz, nx, nz float64 }
+		for i, s := range []side{{x0, z0, x1, z0, 0, 1}, {x1, z0, x1, z1, -1, 0}, {x1, z1, x0, z1, 0, -1}, {x0, z1, x0, z0, 1, 0}} {
+			if !wall(cx+dirs[i][0], cy+dirs[i][1]) {
+				continue
+			}
+			m := material(cx+dirs[i][0], cy+dirs[i][1]).load()
+			f := q(vert{s.ax, -0.5, s.az, 0, 0, 0, 0, 0}, vert{s.bx, -0.5, s.bz, 1, 0, 0, 0, 0}, vert{s.bx, 0.5, s.bz, 1, 1, 0, 0, 0}, vert{s.ax, 0.5, s.az, 0, 1, 0, 0, 0}, m.img, 3)
+			f.m = m
+			if math.Abs(s.nx*c.rtx+s.nz*c.rtz) > 0.5 { // a side wall: theirs fade 30% toward the fog
+				f.inc = 0.3
+			}
+			if m.lightPow > 0 { // a flickering glow in front of a light-mapped face
+				d := dirs[i]
+				k := 0.5 + 0.1*m.lightPow
+				wx, wz := float64(cx+d[0])+0.5, float64(cy+d[1])+0.5
+				fl := 0.8 + 0.2*math.Sin(float64(cx*7+cy*13+i)+g.time*2.4)
+				glow(wx-float64(d[0])*k, 0.5-m.lightHei, wz-float64(d[1])*k, 1.5*m.lightPow, m.lightCol, 0.6*fl, 0.75, false)
+			}
+		}
+	}
+	for _, e := range ents { // billboards, only in cells a ray reached
+		if _, ok := visibleCells(c)[[2]int{int(math.Floor(e.x)), int(math.Floor(e.z))}]; !ok {
+			continue
+		}
+		if e.light > 0 { // a moving light (en_FloatingLight): its glow and light circles below and above
+			col := [3]float64{e.lr, e.lg, e.lb}
+			if e.kind == Fireball {
+				col = [3]float64{1, 0.45, 0.15}
+			}
+			glow(e.x, e.y, e.z, 0.2+e.size*3, col, 1, 0.85, false)
+			r := math.Min(1.5, 0.6*e.light+0.3)
+			glow(e.x, 0.499, e.z, r, col, 0.30, 0.85, true)
+			if !openSky {
+				glow(e.x, -0.499, e.z, r, col, 0.25, 0.85, true)
+			}
+			continue
+		}
+		hx, hz := c.rtx*e.size/2, c.rtz*e.size/2
+		q(vert{e.x - hx, e.y - e.size/2, e.z - hz, 0, 0, 0, 0, 0}, vert{e.x + hx, e.y - e.size/2, e.z + hz, 1, 0, 0, 0, 0},
+			vert{e.x + hx, e.y + e.size/2, e.z + hz, 1, 1, 0, 0, 0}, vert{e.x - hx, e.y + e.size/2, e.z - hz, 0, 1, 0, 0, 0}, e.tex, 1)
+	}
+	for _, o := range Objects { // props and floor items: static floor-standing billboards
+		if _, ok := visibleCells(c)[[2]int{o.X, o.Y}]; !ok || o.Img == nil {
+			continue
+		}
+		ox, oz := float64(o.X)+0.5+c.fwx*eyeBack, float64(o.Y)+0.5+c.fwz*eyeBack
+		b := o.Img.Bounds()
+		k := o.Size / math.Max(float64(b.Dx()), float64(b.Dy()))
+		wid, hgt := k*float64(b.Dx()), k*float64(b.Dy())
+		hx, hz := c.rtx*wid/2, c.rtz*wid/2
+		q(vert{ox - hx, 0.5 - hgt, oz - hz, 0, 0, 0, 0, 0}, vert{ox + hx, 0.5 - hgt, oz + hz, 1, 0, 0, 0, 0},
+			vert{ox + hx, 0.5, oz + hz, 1, 1, 0, 0, 0}, vert{ox - hx, 0.5, oz - hz, 0, 1, 0, 0, 0}, o.Img, 1)
+	}
+	// monsters paint over the walls of their own cell (a wide one would vanish into them), not nearer ones
+	bias = 0.5
+	for _, a := range actors { // monsters: floor-standing billboards
+		ax, az := a.pos()
+		if _, ok := visibleCells(c)[[2]int{int(math.Floor(ax)), int(math.Floor(az))}]; !ok {
+			continue
+		}
+		if a.x == g.x && a.y == g.y { // in melee: as far in front of our centre as we stand behind it, whichever way we face
+			ax, az = g.tx+c.fwx*2*eyeBack, g.tz+c.fwz*2*eyeBack
+		}
+		ax, az = ax-c.fwx*eyeBack, az-c.fwz*eyeBack // mirror the eye: we stand at the back of our cell, the monster at the front of its, facing us
+		img := a.img()
+		b := img.Bounds()
+		size := a.sheet.Size
+		if size == 0 {
+			size = 0.6
+		}
+		k := math.Min(size/float64(b.Dy()), math.Max(1, size)/float64(b.Dx()))
+		if a.sheet.density { // one pixel density for every painted monster; poses keep their own extent
+			k = 1.0 / PxPerTile
+		}
+		wid, hgt := k*float64(b.Dx()), k*float64(b.Dy())
+		hx, hz := c.rtx*wid/2, c.rtz*wid/2
+		q(vert{ax - hx, 0.5 - hgt, az - hz, 0, 0, 0, 0, 0}, vert{ax + hx, 0.5 - hgt, az + hz, 1, 0, 0, 0, 0},
+			vert{ax + hx, 0.5, az + hz, 1, 1, 0, 0, 0}, vert{ax - hx, 0.5, az - hz, 0, 1, 0, 0, 0}, img, 1)
+	}
+	bias = 0
+
+	if sign.tex != nil {
+		d := dirs[sign.dir]
+		fwd, y0 := eyeBack, 0.0 // mid-cell, centred at eye height
+		b := sign.tex.Bounds()
+		wid, hgt := float64(b.Dx())/400, float64(b.Dy())/400 // 400 texture px per tile
+		if sign.top {
+			fwd, y0 = 0.48, -0.5+0.04+hgt/2 // just off the wall ahead, hanging from the top
+		}
+		sx, sz := float64(sign.x)+0.5+float64(d[0])*fwd, float64(sign.y)+0.5+float64(d[1])*fwd
+		hx, hz := c.rtx*wid/2, c.rtz*wid/2
+		q(vert{sx - hx, y0 - hgt/2, sz - hz, 0, 0, 0, 0, 0}, vert{sx + hx, y0 - hgt/2, sz + hz, 1, 0, 0, 0, 0},
+			vert{sx + hx, y0 + hgt/2, sz + hz, 1, 1, 0, 0, 0}, vert{sx - hx, y0 + hgt/2, sz - hz, 0, 1, 0, 0, 0}, sign.tex, 1).mode = modeUnlit
+	}
+	// ponytail: painter's sort by face-center depth; z-buffer if overlap artifacts show up.
+	// Floor/ceiling first: at eye height they can't occlude walls or billboards, but their centers can sort nearer.
+	// The light circles on them next, so walls still cover them.
+	sort.Slice(faces, func(i, j int) bool {
+		if faces[i].pass != faces[j].pass {
+			return faces[i].pass < faces[j].pass
+		}
+		return faces[i].dist > faces[j].dist
+	})
+	for _, f := range faces {
+		g.drawQuad(dst, c, f)
+	}
 	if g.dither {
 		op := &ebiten.DrawRectShaderOptions{}
 		op.Images[0] = g.scene
@@ -1321,7 +1564,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 
 func (g *Game) drawAtlas(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{30, 30, 40, 255})
-	font.Print(screen, "Texture atlas (F12 to return). Walls are extruded from their heightmaps when baked.", 4, 0)
+	font.Print(screen, "Texture atlas (F12 to return). Walls are extruded from their heightmaps in the shader.", 4, 0)
 	for i, a := range atlas {
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Scale(2, 2)
@@ -1419,7 +1662,6 @@ func SetMap(lvl []string, x, y int) {
 	g.fx, g.fz, g.fa = g.tx, g.tz, g.ta
 	g.t, g.moving, g.queued = 1, false, 0
 	ClearSign()
-	queueBakes(true)
 }
 
 // SetCell rewrites one map cell ('.' floor or a wall material character).
@@ -1431,7 +1673,6 @@ func SetCell(x, y int, ch byte) {
 	row[x] = ch
 	level[y] = string(row)
 	visCache.cells = nil
-	queueBakes(false)
 }
 
 // Cell returns the map character at x,y, or 0 outside the map.
@@ -1473,11 +1714,15 @@ func Run(lvl []string, x, y, dir int) error {
 			e.tex = texFirefly
 		}
 	}
+	tsh, err := ebiten.NewShader([]byte(texSrc))
+	if err != nil {
+		return err
+	}
 	sh, err := ebiten.NewShader([]byte(ditherSrc))
 	if err != nil {
 		return err
 	}
-	g := &Game{dither: true, smooth: true, torch: 1, scene: ebiten.NewImage(W, H), shader: sh}
+	g := &Game{dither: true, smooth: true, torch: 1, scene: ebiten.NewImage(W, H), shader: sh, texShader: tsh}
 	game = g
 	g.ta = float64(dir) * math.Pi / 2
 	g.dir = dir
