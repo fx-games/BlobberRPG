@@ -123,6 +123,11 @@ func drawCard(d *ebiten.Image, i int, c *party.Character) {
 		op.ColorScale.Scale(1, 0.5, 0.5, 1) // brief red flash
 	}
 	d.DrawImage(img, op)
+	if c == Active && blobber.Fighting() { // the border over the portrait, keeping its detail on top
+		GoldBorder(d, rc(0, 0, cardW, frameH))
+	} else {
+		DarkBorder(d, rc(0, 0, cardW, frameH))
+	}
 
 	cond := ""
 	for _, k := range party.Conditions {

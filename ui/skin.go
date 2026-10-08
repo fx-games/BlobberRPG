@@ -74,6 +74,11 @@ func tile(dst *ebiten.Image, src, d image.Rectangle) {
 
 // nine draws src as a nine-slice with border b onto d: fixed corners, tiled edges, stretched middle.
 func nine(dst *ebiten.Image, src image.Rectangle, b int, d image.Rectangle) {
+	nineParts(dst, src, b, d, true)
+}
+
+// nineParts is nine, without the centre when centre is false: a border to draw over a picture.
+func nineParts(dst *ebiten.Image, src image.Rectangle, b int, d image.Rectangle, centre bool) {
 	sx := [4]int{src.Min.X, src.Min.X + b, src.Max.X - b, src.Max.X}
 	sy := [4]int{src.Min.Y, src.Min.Y + b, src.Max.Y - b, src.Max.Y}
 	dx := [4]int{d.Min.X, d.Min.X + b, d.Max.X - b, d.Max.X}
@@ -82,7 +87,9 @@ func nine(dst *ebiten.Image, src image.Rectangle, b int, d image.Rectangle) {
 		for i := range 3 {
 			s, t := image.Rect(sx[i], sy[j], sx[i+1], sy[j+1]), image.Rect(dx[i], dy[j], dx[i+1], dy[j+1])
 			if i == 1 && j == 1 {
-				blit(dst, s, t)
+				if centre {
+					blit(dst, s, t)
+				}
 			} else {
 				tile(dst, s, t)
 			}
@@ -117,6 +124,13 @@ func DarkFrame(dst *ebiten.Image, d image.Rectangle) { nine(dst, rc(210, 18, 60,
 
 // GoldFrame is the gold twin of DarkFrame (the big gold knotwork panel), for highlighting.
 func GoldFrame(dst *ebiten.Image, d image.Rectangle) { nine(dst, rc(2, 2, 92, 92), 16, d) }
+
+// DarkBorder and GoldBorder are DarkFrame and GoldFrame without their centre, drawn over a picture
+// (a portrait) so the knotwork stays on top of it.
+func DarkBorder(dst *ebiten.Image, d image.Rectangle) {
+	nineParts(dst, rc(210, 18, 60, 60), 14, d, false)
+}
+func GoldBorder(dst *ebiten.Image, d image.Rectangle) { nineParts(dst, rc(2, 2, 92, 92), 16, d, false) }
 
 // Parchment is the scroll paper used for signs and cutscenes; text on it is ink coloured.
 func Parchment(dst *ebiten.Image, d image.Rectangle) { nine(dst, rc(96, 0, 96, 96), 16, d) }

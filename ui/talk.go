@@ -100,6 +100,7 @@ func (t *Talk) Draw(screen *ebiten.Image) {
 		op.GeoM.Translate(40, 174)
 		d.DrawImage(img, op)
 	}
+	DarkBorder(d, rc(32, 166, 2*PortraitSize+16, 2*PortraitSize+16)) // over the portrait
 	Print(d, npc.Name, talkTextX, 168, gold)
 	ls := t.lines()
 	for i := t.page * talkLines; i < min(len(ls), (t.page+1)*talkLines); i++ {
