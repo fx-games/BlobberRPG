@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"blobber"
 	"bytes"
 	"fmt"
 	"image"
@@ -197,7 +198,7 @@ func (v *Inventory) clampSel() {
 
 // Update handles input; false closes the window.
 func (v *Inventory) Update() bool {
-	pressed := inpututil.IsKeyJustPressed
+	pressed := blobber.KeyJustPressed
 	if pressed(ebiten.KeyI) {
 		return false
 	}

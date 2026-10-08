@@ -90,6 +90,18 @@ type Prompt struct {
 	Text  bool // free text entry
 	input string
 	on    func(answer string)
+	sel   int // gamepad: the highlighted "  F<n>  name" line, among options()
+}
+
+// options are the indices of the "  F<n>  ..." choice lines, which a gamepad steps through.
+func (p *Prompt) options() []int {
+	var out []int
+	for i, l := range p.Lines {
+		if t := strings.TrimSpace(l); len(t) > 1 && t[0] == 'F' && t[1] >= '1' && t[1] <= '9' {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 var prompt *Prompt
@@ -100,23 +112,42 @@ func ShowPrompt(lines []string, text bool, on func(string)) {
 
 func (p *Prompt) update() {
 	done := func(a string) { prompt = nil; p.on(a) }
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+	if KeyJustPressed(ebiten.KeyEscape) {
 		done("")
 		return
 	}
 	chars := string(ebiten.AppendInputChars(nil))
 	if p.Text {
 		p.input += chars
-		if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && len(p.input) > 0 {
+		if KeyJustPressed(ebiten.KeyBackspace) && len(p.input) > 0 {
 			p.input = p.input[:len(p.input)-1]
 		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+		if KeyJustPressed(ebiten.KeyEnter) {
 			done(p.input)
 		}
 		return
 	}
+	if !Gamepads() {
+	} else if opts := p.options(); len(opts) > 0 { // gamepad: up/down choose a character, A takes it
+		if KeyJustPressed(ebiten.KeyUp) {
+			p.sel = (p.sel + len(opts) - 1) % len(opts)
+		}
+		if KeyJustPressed(ebiten.KeyDown) {
+			p.sel = (p.sel + 1) % len(opts)
+		}
+		if KeyJustPressed(ebiten.KeyEnter) {
+			done(string(rune('1' + p.sel%len(opts))))
+			return
+		}
+	} else if KeyJustPressed(ebiten.KeyY) { // A on a yes/no question
+		done("y")
+		return
+	} else if KeyJustPressed(ebiten.KeyN) {
+		done("n")
+		return
+	}
 	for i := range 9 { // F1-F9 pick a character, like digits
-		if inpututil.IsKeyJustPressed(ebiten.KeyF1 + ebiten.Key(i)) {
+		if KeyJustPressed(ebiten.KeyF1 + ebiten.Key(i)) {
 			done(string(rune('1' + i)))
 			return
 		}
@@ -135,7 +166,11 @@ func (p *Prompt) draw(screen *ebiten.Image) {
 		lines = append(append([]string{}, lines...), "> "+p.input+"_")
 	}
 	if Window != nil {
-		Window(screen, "", lines, -1, true)
+		sel := -1
+		if opts := p.options(); Gamepads() && len(opts) > 0 && !p.Text {
+			sel = opts[p.sel%len(opts)]
+		}
+		Window(screen, "", lines, sel, true)
 		return
 	}
 	bw, bh := float32(W)*0.6, float32(16*len(lines)+24)
@@ -947,20 +982,27 @@ func (g *Game) Update() error {
 	g.time += 1.0 / 60
 	updateEnts(g.time)
 	g.updateActors(1.0 / 60)
-	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
+	ctx := byte('x')
+	if g.menu && prompt == nil && Modal == nil && !g.help && !g.mapView {
+		ctx = 'm'
+	} else if prompt == nil && Modal == nil && !g.help && !g.mapView {
+		ctx = 'w'
+	}
+	pollPads(ctx)
+	if KeyJustPressed(ebiten.KeyF12) {
 		g.atlasView = !g.atlasView
 	}
 	if g.mapView { // the map screen: any of M, Esc or a click closes it
-		if inpututil.IsKeyJustPressed(ebiten.KeyM) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if KeyJustPressed(ebiten.KeyM) || KeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			g.mapView = false
 		}
 		return nil
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyM) && prompt == nil && Modal == nil && !g.help {
+	if KeyJustPressed(ebiten.KeyM) && prompt == nil && Modal == nil && !g.help {
 		g.mapView = true
 		return nil
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyP) {
+	if KeyJustPressed(ebiten.KeyP) {
 		g.debug = !g.debug
 	}
 	// "?" toggles the help screen over everything, except while typing an answer
@@ -976,7 +1018,7 @@ func (g *Game) Update() error {
 	if prompt != nil {
 		if Fighting() { // a combat round is asking: turning is still allowed
 			for _, k := range []ebiten.Key{ebiten.KeyQ, ebiten.KeyE, ebiten.KeyLeft, ebiten.KeyRight} {
-				if inpututil.IsKeyJustPressed(k) {
+				if KeyJustPressed(k) {
 					g.act(k)
 				}
 			}
@@ -993,11 +1035,11 @@ func (g *Game) Update() error {
 		return nil
 	}
 	for k, f := range Keys {
-		if inpututil.IsKeyJustPressed(k) {
+		if KeyJustPressed(k) {
 			f()
 		}
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+	if KeyJustPressed(ebiten.KeyEscape) || KeyJustPressed(ebiten.KeyEnter) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
 		g.menu = !g.menu // Esc opens the menu (Quit is in it) and closes it again
 	}
 	if g.menu {
@@ -1005,14 +1047,14 @@ func (g *Game) Update() error {
 			return ebiten.Termination
 		}
 	} else {
-		if inpututil.IsKeyJustPressed(ebiten.KeySpace) && !g.moving && !Fighting() { // wait a turn
+		if KeyJustPressed(ebiten.KeySpace) && !g.moving && !Fighting() { // wait a turn
 			g.endTurn()
 		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyF) && !g.moving && OnUse != nil {
+		if KeyJustPressed(ebiten.KeyF) && !g.moving && OnUse != nil {
 			OnUse(g.x, g.y, g.dir)
 		}
 		for _, k := range []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyA, ebiten.KeyD, ebiten.KeyQ, ebiten.KeyE, ebiten.KeyUp, ebiten.KeyDown, ebiten.KeyLeft, ebiten.KeyRight} {
-			if inpututil.IsKeyJustPressed(k) || (!g.moving && ebiten.IsKeyPressed(k)) { // held key = continuous
+			if KeyJustPressed(k) || (!g.moving && KeyPressed(k)) { // held key = continuous
 				g.act(k)
 			}
 		}
@@ -1058,13 +1100,13 @@ func (g *Game) tween() {
 // updateMenu reports true when Quit was chosen.
 func (g *Game) updateMenu() bool {
 	n := 7
-	if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
+	if KeyJustPressed(ebiten.KeyUp) {
 		g.sel = (g.sel + n - 1) % n
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
+	if KeyJustPressed(ebiten.KeyDown) {
 		g.sel = (g.sel + 1) % n
 	}
-	pick := inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyRight)
+	pick := KeyJustPressed(ebiten.KeySpace) || KeyJustPressed(ebiten.KeyRight)
 	if g.sel == 5 && pick && OnTeleportMenu != nil {
 		g.menu = false
 		OnTeleportMenu()
@@ -1073,7 +1115,7 @@ func (g *Game) updateMenu() bool {
 	if g.sel == 6 && pick {
 		return true
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) || inpututil.IsKeyJustPressed(ebiten.KeyRight) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+	if KeyJustPressed(ebiten.KeyLeft) || KeyJustPressed(ebiten.KeyRight) || KeyJustPressed(ebiten.KeySpace) {
 		switch g.sel {
 		case 0:
 			g.dither = !g.dither
@@ -1083,7 +1125,7 @@ func (g *Game) updateMenu() bool {
 			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
 		case 3:
 			d := 0.25
-			if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
+			if KeyJustPressed(ebiten.KeyLeft) {
 				d = -0.25
 			}
 			bump = math.Max(0, math.Min(2, bump+d))

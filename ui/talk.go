@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"blobber"
 	"image"
 	"strings"
 
@@ -58,7 +59,7 @@ func (t *Talk) answer(yes bool) bool {
 }
 
 func (t *Talk) Update() bool {
-	p := inpututil.IsKeyJustPressed
+	p := blobber.KeyJustPressed
 	ask := t.Ask && t.last()
 	switch {
 	case ask && p(ebiten.KeyY):

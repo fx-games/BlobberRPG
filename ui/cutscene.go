@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"blobber"
 	"bufio"
 	"fmt"
 	"io"
@@ -55,7 +56,7 @@ func ParseCutscene(r io.Reader) []Page {
 }
 
 func (c *Cutscene) Update() bool {
-	p := inpututil.IsKeyJustPressed
+	p := blobber.KeyJustPressed
 	if p(ebiten.KeyEscape) {
 		c.i = len(c.Pages)
 	} else if p(ebiten.KeySpace) || p(ebiten.KeyEnter) || p(ebiten.KeyF) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {

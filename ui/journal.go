@@ -30,7 +30,7 @@ func LoadAwards(r io.Reader) {
 type Journal struct{ P *party.Party }
 
 func (j *Journal) Update() bool {
-	return !inpututil.IsKeyJustPressed(ebiten.KeyEscape) && !inpututil.IsKeyJustPressed(ebiten.KeyJ) &&
+	return !blobber.KeyJustPressed(ebiten.KeyEscape) && !blobber.KeyJustPressed(ebiten.KeyJ) &&
 		!inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft)
 }
 

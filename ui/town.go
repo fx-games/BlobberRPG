@@ -320,7 +320,7 @@ var (
 func shopRow(r int) image.Rectangle { return rc(22, 54+r*rowH, cw-44, rowH) }
 
 func (s *Shop) Update() bool {
-	p := inpututil.IsKeyJustPressed
+	p := blobber.KeyJustPressed
 	if p(ebiten.KeyEscape) {
 		return false
 	}

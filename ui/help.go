@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"blobber"
 	"blobber/font"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -28,7 +29,7 @@ var helpKeys = [2][]struct {
 }}
 
 func (h *HelpScreen) Update() bool {
-	p := inpututil.IsKeyJustPressed
+	p := blobber.KeyJustPressed
 	return !(p(ebiten.KeyEscape) || p(ebiten.KeyEnter) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft))
 }
 
