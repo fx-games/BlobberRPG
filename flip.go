@@ -44,10 +44,16 @@ func scrY(z, h float64) float64 { return RH*farHei + (closeHei-h)*ky/math.Pow(z+
 // mat is a texture with its heightmap, read back to the CPU for baking.
 type mat struct {
 	img, hei *ebiten.Image
+	lit      *ebiten.Image // optional light map: bright where the texture glows (windows, torches)
 	w, h     int
 	pix      []byte
 	height   []float64
 	darkest  color.RGBA // darkest colour with luminance >= 0.1: the colour of extruded sides
+	light    []float64  // light map luminance, nil without one
+	// light map summary (TextureAtlas): average colour weighted by brightness, the glow's height
+	// (1 top) and strength (1 when 3% of the texture is lit)
+	lightCol           [3]float64
+	lightHei, lightPow float64
 }
 
 func lum(c color.RGBA) float64 {
@@ -70,6 +76,30 @@ func (m *mat) load() {
 			m.height[i] = float64(hp[4*i]) / 255
 		}
 	}
+	if m.lit != nil && m.lit.Bounds() == b {
+		lp := make([]byte, 4*m.w*m.h)
+		m.lit.ReadPixels(lp)
+		m.light = make([]float64, m.w*m.h)
+		var n, ys float64
+		for i := range m.light {
+			l := lum(color.RGBA{lp[4*i], lp[4*i+1], lp[4*i+2], 255})
+			m.light[i] = l
+			if l > 0.1 {
+				n += l
+				ys += l * float64(i/m.w)
+				for c := range 3 {
+					m.lightCol[c] += l * float64(lp[4*i+c]) / 255
+				}
+			}
+		}
+		if n > 0 {
+			for c := range 3 {
+				m.lightCol[c] /= n
+			}
+			m.lightHei = 1 - ys/n/float64(m.h)
+			m.lightPow = math.Min(1, n/float64(m.w*m.h)/0.03)
+		}
+	}
 	m.darkest = color.RGBA{255, 255, 255, 255}
 	for i := 0; i < m.w*m.h; i++ {
 		c := color.RGBA{m.pix[4*i], m.pix[4*i+1], m.pix[4*i+2], 255}
@@ -85,6 +115,16 @@ func (m *mat) at(u, v float64) (color.RGBA, float64) {
 	x, y = (x%m.w+m.w)%m.w, (y%m.h+m.h)%m.h
 	i := y*m.w + x
 	return color.RGBA{m.pix[4*i], m.pix[4*i+1], m.pix[4*i+2], 255}, m.height[i]
+}
+
+// lightAt is the light map at (u, v), 0 without one.
+func (m *mat) lightAt(u, v float64) float64 {
+	if m.light == nil {
+		return 0
+	}
+	x, y := int(math.Floor(u*float64(m.w))), int(math.Floor(v*float64(m.h)))
+	x, y = (x%m.w+m.w)%m.w, (y%m.h+m.h)%m.h
+	return m.light[y*m.w+x]
 }
 
 func mix(a, b color.RGBA, t float64) color.RGBA {
@@ -171,6 +211,63 @@ func (c *canvas) sprite() *sprite {
 	return &sprite{img, c.x0, c.y0}
 }
 
+// shadowed is c's sprite over a drop shadow (Deepnight's DropShadow(4, pi/2, fog, 0.45)): the wall's
+// silhouette shifted 4 px down, box-blurred twice with radius 4, in fog colour at 45%.
+func (c *canvas) shadowed() *sprite {
+	if c == nil {
+		return nil
+	}
+	const off, r = 4, 4
+	x0, y0, x1, y1 := max(0, c.x0-2*r), max(0, c.y0+off-2*r), min(RW, c.x1+2*r), min(RH, c.y1+off+2*r)
+	y0 = min(y0, c.y0)
+	w, h := x1-x0, y1-y0
+	a := make([]float64, w*h)
+	for y := c.y0; y < c.y1; y++ {
+		for x := c.x0; x < c.x1; x++ {
+			if c.set[c.idx(x, y)] && y+off < y1 {
+				a[(y+off-y0)*w+x-x0] = 1
+			}
+		}
+	}
+	tmp := make([]float64, w*h)
+	for pass := 0; pass < 4; pass++ { // horizontal, vertical, twice
+		dx, dy, n := 1, w, w
+		if pass%2 == 1 {
+			dx, dy, n = w, 1, h
+		}
+		for line := 0; line < len(a)/n; line++ {
+			sum := 0.0
+			for i := -r; i < n+r; i++ {
+				if i+r < n {
+					sum += a[line*dy+(i+r)*dx]
+				}
+				if i-r-1 >= 0 {
+					sum -= a[line*dy+(i-r-1)*dx]
+				}
+				if i >= 0 && i < n {
+					tmp[line*dy+i*dx] = sum / (2*r + 1)
+				}
+			}
+		}
+		a, tmp = tmp, a
+	}
+	pix := make([]byte, 4*w*h)
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			o := 4 * ((y-y0)*w + x - x0)
+			if i := c.idx(x, y); i >= 0 && c.set[i] {
+				copy(pix[o:o+4], c.pix[4*i:4*i+4])
+				continue
+			}
+			k := 0.45 * a[(y-y0)*w+x-x0]
+			pix[o], pix[o+1], pix[o+2], pix[o+3] = byte(float64(fogCol.R)*k), byte(float64(fogCol.G)*k), byte(float64(fogCol.B)*k), byte(255*k)
+		}
+	}
+	img := ebiten.NewImage(w, h)
+	img.WritePixels(pix)
+	return &sprite{img, x0, y0}
+}
+
 // sideWall bakes the wall face along column edge a over cell depth rz..rz+1 (TextureBuilder.makeSideWall).
 // Each texel is smeared toward the corridor by its height; the smear is the brick's side, shaded toward
 // the texture's darkest colour with noise. Near columns are drawn first and keep their pixels.
@@ -227,7 +324,7 @@ func sideWall(m *mat, a, rz int, bevel bool, mul float64) *sprite {
 					pc = mix(pc, m.darkest, 0.2+0.3*clamp01(r))
 				}
 				bx, by := (af-0.5)*1.5, (z0+u+checker(ox, y)*0.15)*0.7
-				pc = shade(pc, darkness(math.Hypot(bx, by)+(1-v)*1.8, mul), 0.3)
+				pc = shade(pc, darkness(math.Hypot(bx, by)+(1-v)*1.8, mul*(1-0.6*m.lightAt(u, v))), 0.3)
 				c.put(i, pc)
 			}
 		}
@@ -235,7 +332,7 @@ func sideWall(m *mat, a, rz int, bevel bool, mul float64) *sprite {
 			break
 		}
 	}
-	return c.sprite()
+	return c.shadowed()
 }
 
 // frontWall bakes the face of the wall cell at column a, depth plane rz (TextureBuilder.makeFrontWall):
@@ -273,14 +370,14 @@ func frontWall(m *mat, a, rz int, mul float64) *sprite {
 						pc = mix(col, m.darkest, 0.6)
 					}
 					bx, by := (af+u-0.5)*1.5, z*0.7
-					pc = shade(pc, darkness(math.Hypot(bx, by)+(1-v+checker(tx, ty)*0.15)*1.8, mul), 0)
+					pc = shade(pc, darkness(math.Hypot(bx, by)+(1-v+checker(tx, ty)*0.15)*1.8, mul*(1-0.8*m.lightAt(u, v))), 0)
 					c.put(i, pc)
 					zmap[i] = int8(s + 1)
 				}
 			}
 		}
 	}
-	return c.sprite()
+	return c.shadowed()
 }
 
 // flat bakes the floor (h 0) or ceiling (h 1) of the cell at column a, depth rz. The texture stays
@@ -512,9 +609,66 @@ func (g *Game) billboards(mul float64) []drawItem {
 		}
 		items = append(items, drawItem{z, func(dst *ebiten.Image) { dst.DrawImage(img, op) }})
 	}
+	// glow adds the light texture, w wall heights wide and squash times as tall, centred at height hc,
+	// tinted col at alpha, darkened by distance times dm (en_FloatingLight, en_LightGlow).
+	glow := func(wx, wz, hc, w, squash float64, col [3]float64, alpha, dm, depth float64) {
+		if _, ok := vis[[2]int{int(math.Floor(wx)), int(math.Floor(wz))}]; !ok {
+			return
+		}
+		ox, oz := wx-float64(g.x)-0.5, wz-float64(g.y)-0.5
+		a, z := ox*rf[0]+oz*rf[1]+0.5, ox*ff[0]+oz*ff[1]+0.5
+		if z < 0.2 || z > skyDZ+1 {
+			return
+		}
+		s := ky / math.Pow(z+1, zMul)
+		pw, ph := w*s, w*squash*s
+		op := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear, Blend: ebiten.BlendLighter}
+		op.GeoM.Scale(pw/64, ph/64)
+		op.GeoM.Translate(scrX(a, z)-pw/2, scrY(z, hc)-ph/2)
+		k := float32(alpha * (1 - darkness(math.Hypot((a-0.5)*1.5, z*0.7)+(1-hc)*1.8, mul)*dm))
+		op.ColorScale.Scale(float32(col[0])*k, float32(col[1])*k, float32(col[2])*k, k)
+		items = append(items, drawItem{depth, func(dst *ebiten.Image) { dst.DrawImage(texGlow, op) }})
+	}
+	// en_LightGlow: a flickering glow in front of each face of a light-mapped wall we can see
+	for c := range vis {
+		for _, d := range dirs {
+			wx, wz := c[0]-d[0], c[1]-d[1]
+			if !wall(wx, wz) {
+				continue
+			}
+			m := material(wx, wz)
+			if m.load(); m.lightPow <= 0 {
+				continue
+			}
+			k := 0.5 + 0.1*m.lightPow
+			gx, gz := float64(wx)+0.5+float64(d[0])*k, float64(wz)+0.5+float64(d[1])*k
+			w, squash := 1.5*m.lightPow, 1.0
+			if d[0]*f[0]+d[1]*f[1] == 0 { // seen from the side
+				w, squash = w*0.4, 2.5
+			}
+			fl := 0.8 + 0.2*math.Sin(float64(wx*7+wz*13)+g.time*2.4)
+			z := (gx-float64(g.x)-0.5)*ff[0] + (gz-float64(g.y)-0.5)*ff[1] + 0.5
+			glow(gx, gz, m.lightHei, w, squash, m.lightCol, 0.6*fl, 0.75, z)
+		}
+	}
 	for _, e := range ents {
-		lit := e.kind != Grass
-		add(e.tex, e.x, e.z, 0.5-(e.y+e.size/2), e.size, e.size, lit)
+		if e.light <= 0 {
+			add(e.tex, e.x, e.z, 0.5-(e.y+e.size/2), e.size, e.size, e.kind != Grass)
+			continue
+		}
+		// a moving light: its glow, plus light circles on the floor and the ceiling below and above it
+		col := [3]float64{e.lr, e.lg, e.lb}
+		if e.kind == Fireball {
+			col = [3]float64{1, 0.45, 0.15}
+		}
+		z := (e.x-float64(g.x)-0.5)*ff[0] + (e.z-float64(g.y)-0.5)*ff[1] + 0.5
+		w := 0.2 + e.size*3
+		glow(e.x, e.z, 0.5-e.y, w, 1, col, 1, 0.85, z-0.01)
+		r := math.Min(1.5, 0.6*e.light+0.3)
+		glow(e.x, e.z, 0, r, math.Min(0.5, r*r*0.3), col, 0.30, 0.85, z)
+		if !openSky {
+			glow(e.x, e.z, 1, r, math.Min(0.5, r*r*0.3), col, 0.25, 0.85, z)
+		}
 	}
 	for _, o := range Objects {
 		if o.Img == nil {
@@ -603,28 +757,54 @@ func bez(t, p1, p2 float64) float64 {
 	return 3*t*n*n*p1 + 3*t*t*n*p2 + t*t*t
 }
 
+// blurTmp holds one layer of a transition while its blurred copies add up.
+var blurTmp *ebiten.Image
+
 // warp draws img like the reference's CustomTransformation filter: each source column's height is
 // scaled about the middle row by a factor running from lh (left edge) to rh (right edge), then the
 // image is scaled by (sx, sy) about pivot (px, py) (shares of the view) and shifted by (ox, oy).
-func warp(dst, img *ebiten.Image, sx, sy, px, py, ox, oy, lh, rh, alpha float64) {
-	const cols = 16
-	a := float32(alpha)
-	var vs []ebiten.Vertex
-	var is []uint16
-	for i := 0; i <= cols; i++ {
-		u := float64(i) / cols
-		k := lh + u*(rh-lh)
-		for _, v := range []float64{0, 1} {
-			x := (px + (u-px)*sx) * RW
-			y := (py + (0.5+(v-0.5)*k-py)*sy) * RH
-			vs = append(vs, ebiten.Vertex{DstX: float32(x + ox), DstY: float32(y + oy), SrcX: float32(u * RW), SrcY: float32(v * RH), ColorR: a, ColorG: a, ColorB: a, ColorA: a})
-		}
-		if i > 0 {
-			n := uint16(2 * i)
-			is = append(is, n-2, n, n+1, n-2, n+1, n-1)
-		}
+// blur > 0 smears it over blur px (MotionBlur): sideways, or with zoom outward from the view centre.
+func warp(dst, img *ebiten.Image, sx, sy, px, py, ox, oy, lh, rh, alpha, blur float64, zoom bool) {
+	const cols, copies = 16, 8
+	n := 1
+	if blur >= 1 {
+		n = copies
 	}
-	dst.DrawTriangles(vs, is, img, &ebiten.DrawTrianglesOptions{})
+	if blurTmp == nil {
+		blurTmp = ebiten.NewImage(RW, RH)
+	}
+	blurTmp.Clear()
+	c := float32(1) / float32(n)
+	for j := 0; j < n; j++ {
+		sh := 0.0
+		if n > 1 {
+			sh = (float64(j)/float64(n-1) - 0.5) * blur * RW / 500 * 0.5 // their blur is in 500 px view pixels, weighted toward the centre
+		}
+		bx, bk := sh, 1.0
+		if zoom {
+			bx, bk = 0, 1+sh/RW*2
+		}
+		var vs []ebiten.Vertex
+		var is []uint16
+		for i := 0; i <= cols; i++ {
+			u := float64(i) / cols
+			k := lh + u*(rh-lh)
+			for _, v := range []float64{0, 1} {
+				x := (px + (u-px)*sx) * RW
+				y := (py + (0.5+(v-0.5)*k-py)*sy) * RH
+				x, y = RW/2+(x+ox-RW/2)*bk+bx, RH*farHei+(y+oy-RH*farHei)*bk
+				vs = append(vs, ebiten.Vertex{DstX: float32(x), DstY: float32(y), SrcX: float32(u * RW), SrcY: float32(v * RH), ColorR: c, ColorG: c, ColorB: c, ColorA: c})
+			}
+			if i > 0 {
+				m := uint16(2 * i)
+				is = append(is, m-2, m, m+1, m-2, m+1, m-1)
+			}
+		}
+		blurTmp.DrawTriangles(vs, is, img, &ebiten.DrawTrianglesOptions{Blend: ebiten.BlendLighter, Filter: ebiten.FilterLinear, ColorScaleMode: ebiten.ColorScaleModePremultipliedAlpha})
+	}
+	op := &ebiten.DrawImageOptions{}
+	op.ColorScale.ScaleAlpha(float32(clamp01(alpha)))
+	dst.DrawImage(blurTmp, op)
 }
 
 // drawTransition blends the frame before the move (g.prev) into the new one (g.view) at progress t,
@@ -633,32 +813,33 @@ func (g *Game) drawTransition(dst *ebiten.Image, t float64) {
 	dst.Fill(fogCol)
 	r := bez(t, 0, 1.2) // elasticOut
 	easeIn, easeOut := bez(t, 0, 0.5), bez(t, 0.3, 1)
+	mid, midOut, kick := bez(t, 1.33, 1.33), bez(t, 0, 2.2), bez(t, 1, 1)
 	bob := math.Sin(t * 2 * math.Pi)
 	switch g.trans {
 	case trTurnLeft:
-		warp(dst, g.view, 1.3-0.3*r, 0.9+0.1*r, 1.3, farHei, 0, 0, 2.5-1.5*r, 0.5+0.5*r, 1)
-		warp(dst, g.prev, 1-0.6*r, 1, 0.9, farHei, r*RW/2, 0, 1-0.95*r, 1+3*r, 1-1.8*r)
+		warp(dst, g.view, 1.3-0.3*r, 0.9+0.1*r, 1.3, farHei, 0, 0, 2.5-1.5*r, 0.5+0.5*r, 1, 64*(1-t), false)
+		warp(dst, g.prev, 1-0.6*r, 1, 0.9, farHei, r*RW/2, 0, 1-0.95*r, 1+3*r, 1-1.8*r, 128*mid, false)
 	case trTurnRight:
-		warp(dst, g.view, 1.3-0.3*r, 0.9+0.1*r, -0.3, farHei, 0, 0, 0.5+0.5*r, 2.5-1.5*r, 1)
-		warp(dst, g.prev, 1-0.6*r, 1, 0.1, farHei, -r*RW/2, 0, 1+3*r, 1-0.95*r, 1-1.8*r)
+		warp(dst, g.view, 1.3-0.3*r, 0.9+0.1*r, -0.3, farHei, 0, 0, 0.5+0.5*r, 2.5-1.5*r, 1, 64*(1-t), false)
+		warp(dst, g.prev, 1-0.6*r, 1, 0.1, farHei, -r*RW/2, 0, 1+3*r, 1-0.95*r, 1-1.8*r, 128*mid, false)
 	case trForward:
 		k := 0.75 + 0.25*r
-		warp(dst, g.view, k, k, 0.5, farHei, 0, 0, 1, 1, 1)
+		warp(dst, g.view, k, k, 0.5, farHei, 0, 0, 1, 1, 1, 0, false)
 		k = 1 + 0.4*easeIn
-		warp(dst, g.prev, k, k, 0.5, farHei, 0, 0, 1, 1, 1-clamp01((t-0.3)/0.7))
+		warp(dst, g.prev, k, k, 0.5, farHei, 0, 0, 1, 1, 1-clamp01((t-0.3)/0.7), 64*kick, true)
 	case trBack:
 		k := 1.3 - 0.3*r
-		warp(dst, g.view, k, k, 0.5, farHei, 0, 4*bob, 1, 1, 1)
+		warp(dst, g.view, k, k, 0.5, farHei, 0, 4*bob, 1, 1, 1, 0, false)
 		k = 1 - 0.4*r
-		warp(dst, g.prev, k, k, 0.5, farHei, 0, 4*bob, 1, 1, 1-r)
+		warp(dst, g.prev, k, k, 0.5, farHei, 0, 4*bob, 1, 1, 1-r, 64*midOut, true)
 	case trStrafeRight, trStrafeLeft:
 		s := 1.0
 		if g.trans == trStrafeLeft {
 			s = -1
 		}
 		prevDist, curDist := 0.8+g.closeWall*0.8, 0.6+g.closeWall*1.2
-		warp(dst, g.view, 1, 1, 0.5, farHei, s*(1-easeOut)*0.2*RW*curDist, 3*bob, 1, 1, 1)
-		warp(dst, g.prev, 1+0.1*easeIn, 1, 0.5, farHei, -s*easeIn*0.1*RW*prevDist, 3*bob, 1, 1, math.Max(0, 1-easeIn*(2-g.closeWall)))
+		warp(dst, g.view, 1, 1, 0.5, farHei, s*(1-easeOut)*0.2*RW*curDist, 3*bob, 1, 1, 1, 16*(1-easeOut), false)
+		warp(dst, g.prev, 1+0.1*easeIn, 1, 0.5, farHei, -s*easeIn*0.1*RW*prevDist, 3*bob, 1, 1, 1-easeIn*(2-g.closeWall), 16*mid, false)
 	}
 }
 

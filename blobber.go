@@ -300,6 +300,7 @@ var (
 	texFloor, texCeil                             *ebiten.Image
 	defFloor, defCeil                             *ebiten.Image // before a map picks its own
 	texGrass, texLantern, texFirefly, texFireball *ebiten.Image
+	texGlow                                       *ebiten.Image // 64x64 white radial falloff, premultiplied
 	texBolt                                       *ebiten.Image
 	atlas                                         []struct {
 		name string
@@ -349,7 +350,7 @@ func genTextures() {
 	}
 	for ch, name := range painted {
 		if t := wallTexture(name); t != nil {
-			mats[ch] = &mat{img: t, hei: wallTexture(name + "_height")}
+			mats[ch] = &mat{img: t, hei: wallTexture(name + "_height"), lit: wallTexture(name + "_light")}
 		}
 	}
 	texFloor, _ = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
@@ -363,6 +364,14 @@ func genTextures() {
 	defFloor, defCeil = texFloor, texCeil
 	SetFlats(flatNames[0], flatNames[1])
 	texGrass = genGrass()
+	texGlow = ebiten.NewImage(64, 64)
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			d := math.Hypot(float64(x)-31.5, float64(y)-31.5) / 32
+			k := uint8(255 * math.Pow(math.Max(0, 1-d), 2))
+			texGlow.Set(x, y, color.RGBA{k, k, k, k})
+		}
+	}
 	texLantern = genSolid(color.RGBA{255, 220, 150, 255})
 	texFirefly = genSolid(color.RGBA{200, 255, 180, 255})
 	texFireball = genSolid(color.RGBA{255, 90, 30, 255})
@@ -433,9 +442,18 @@ func updateEnts(t float64) {
 			if wall(cx, cz) || HitMonster(cx, cz, e.dmg) {
 				continue
 			}
-		case Lantern: // ponytail: lanterns drift around home; give ent a path when a map needs patrols
-			e.x = e.hx + 0.35*math.Sin(t*0.5+e.phase)
-			e.z = e.hz + 0.35*math.Cos(t*0.4+e.phase)
+		case Lantern: // en_FloatingLight: patrols in a straight line, turns back at walls, bobs
+			if e.vx == 0 && e.vz == 0 {
+				d := dirs[int(e.phase)%4]
+				e.vx, e.vz = float64(d[0])*0.6, float64(d[1])*0.6
+			}
+			nx, nz := e.x+e.vx/60, e.z+e.vz/60
+			if wall(int(math.Floor(nx+math.Copysign(0.3, e.vx))), int(math.Floor(nz+math.Copysign(0.3, e.vz)))) {
+				e.vx, e.vz = -e.vx, -e.vz
+			} else {
+				e.x, e.z = nx, nz
+			}
+			e.y = -0.1 + 0.04*math.Cos(e.phase+t*9)
 		case Firefly:
 			e.x = e.hx + 0.35*math.Sin(t*1.3+e.phase)*math.Cos(t*0.7+e.phase)
 			e.z = e.hz + 0.35*math.Cos(t*1.1+e.phase)
