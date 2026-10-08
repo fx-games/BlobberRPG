@@ -201,10 +201,11 @@ var (
 	TileMarks      func() map[[2]int]int
 
 	// Skin hooks; nil keeps the plain built-in look.
-	Window     func(screen *ebiten.Image, title string, lines []string, sel int, bottom bool) // text window
-	SignImage  func(lines []string) *ebiten.Image                                             // world text plaque
-	BoardImage func(lines []string) *ebiten.Image                                             // shop sign board (ShowSignAbove)
-	Panel      func(screen *ebiten.Image, r image.Rectangle)                                  // backdrop, e.g. the minimap
+	Window      func(screen *ebiten.Image, title string, lines []string, sel int, bottom bool) // text window
+	SignImage   func(lines []string) *ebiten.Image                                             // world text plaque
+	BoardImage  func(lines []string) *ebiten.Image                                             // shop sign board (ShowSignAbove)
+	Panel       func(screen *ebiten.Image, r image.Rectangle)                                  // backdrop, e.g. the minimap
+	PanelBorder func() int                                                                     // device px Panel's frame covers on each side
 )
 
 // OnMove is called after every step or turn with the new position and facing (0=N 1=E 2=S 3=W).
@@ -1227,15 +1228,17 @@ func (g *Game) menuItems() []string {
 type vert struct{ x, y, z, u, v, r, g, b float64 } // world pos, uv, light
 
 type face struct {
-	v    [4]vert
-	tex  *ebiten.Image
-	dist float64
-	sub  int
-	m    *mat    // wall material, for its light map
-	inc  float64 // constant extra fade toward the fog (look.go)
-	mode int     // modeShaded, modeUnlit or modeGlow
-	tint [3]float64
-	pass int // 0 floor and ceiling, 1 light circles on them, 2 the rest, sorted far to near
+	v     [4]vert
+	tex   *ebiten.Image
+	dist  float64
+	raw   float64 // dist without the monsters' bias
+	sub   int
+	front bool    // a wall face turned toward us: monsters don't paint over it when it is nearer
+	m     *mat    // wall material, for its light map
+	inc   float64 // constant extra fade toward the fog (look.go)
+	mode  int     // modeShaded, modeUnlit or modeGlow
+	tint  [3]float64
+	pass  int // 0 floor and ceiling, 1 light circles on them, 2 the rest, sorted far to near
 }
 
 func lerp(a, b vert, t float64) vert {
@@ -1436,7 +1439,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	q := func(a, b, cc, d vert, t *ebiten.Image, sub int) *face {
 		f := &face{v: [4]vert{a, b, cc, d}, tex: t, sub: sub, pass: 2}
 		mx, mz := (a.x+cc.x)/2-c.x, (a.z+cc.z)/2-c.z
-		f.dist = mx*c.fwx + mz*c.fwz - bias
+		f.raw = mx*c.fwx + mz*c.fwz
+		f.dist = f.raw - bias
 		if f.dist > -1 {
 			faces = append(faces, f)
 		}
@@ -1447,7 +1451,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	glow := func(x, y, z, w float64, col [3]float64, alpha, dm float64, flat bool) {
 		dx, dz := x-c.x, z-c.z
 		lat, dep := dx*c.rtx+dz*c.rtz, dx*c.fwx+dz*c.fwz
-		k := alpha * (1 - darkness(math.Hypot(lat*1.5, dep*0.7)+(0.5-y)*1.8, g.darkMul())*dm)
+		k := alpha * (1 - (1-g.torchLight(math.Sqrt(lat*lat+y*y+dep*dep)))*dm)
 		tint := [3]float64{col[0] * k, col[1] * k, col[2] * k}
 		r := w / 2
 		var f *face
@@ -1464,10 +1468,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		cx, cy := cell[0], cell[1]
 		x0, z0, x1, z1 := float64(cx), float64(cy), float64(cx+1), float64(cy+1)
 		f := q(vert{x0, 0.5, z0, 0, 0, 0, 0, 0}, vert{x1, 0.5, z0, 1, 0, 0, 0, 0}, vert{x1, 0.5, z1, 1, 1, 0, 0, 0}, vert{x0, 0.5, z1, 0, 1, 0, 0, 0}, texFloor, 3)
-		f.pass, f.inc = 0, 0.4
+		f.pass = 0
 		if !openSky {
 			f := q(vert{x0, -0.5, z0, 0, 0, 0, 0, 0}, vert{x1, -0.5, z0, 1, 0, 0, 0, 0}, vert{x1, -0.5, z1, 1, 1, 0, 0, 0}, vert{x0, -0.5, z1, 0, 1, 0, 0, 0}, texCeil, 3)
-			f.pass, f.inc = 0, 0.4
+			f.pass = 0
 		}
 		// wall faces on the four sides of this floor cell, textured by how they face the camera
 		type side struct{ ax, az, bx, bz, nx, nz float64 }
@@ -1477,10 +1481,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			}
 			m := material(cx+dirs[i][0], cy+dirs[i][1]).load()
 			f := q(vert{s.ax, -0.5, s.az, 0, 0, 0, 0, 0}, vert{s.bx, -0.5, s.bz, 1, 0, 0, 0, 0}, vert{s.bx, 0.5, s.bz, 1, 1, 0, 0, 0}, vert{s.ax, 0.5, s.az, 0, 1, 0, 0, 0}, m.face(s.nx*c.rtx+s.nz*c.rtz), 3)
-			f.m = m
-			if math.Abs(s.nx*c.rtx+s.nz*c.rtz) > 0.5 { // a side wall: theirs fade 30% toward the fog
-				f.inc = 0.3
-			}
+			f.m, f.front = m, math.Abs(s.nx*c.rtx+s.nz*c.rtz) <= 0.5
 			if m.lightPow > 0 && Settings.LightMaps { // a flickering glow in front of a light-mapped face
 				d := dirs[i]
 				k := 0.5 + 0.1*m.lightPow
@@ -1523,7 +1524,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		q(vert{ox - hx, 0.5 - hgt, oz - hz, 0, 0, 0, 0, 0}, vert{ox + hx, 0.5 - hgt, oz + hz, 1, 0, 0, 0, 0},
 			vert{ox + hx, 0.5, oz + hz, 1, 1, 0, 0, 0}, vert{ox - hx, 0.5, oz - hz, 0, 1, 0, 0, 0}, o.Img, 1)
 	}
-	// monsters paint over the walls of their own cell (a wide one would vanish into them), not nearer ones
+	// monsters paint over the side walls of their own cell (a wide one would vanish into them); against
+	// walls facing us they sort by true depth, so a corner in front of them hides them
 	bias = 0.5
 	for _, a := range actors { // monsters: floor-standing billboards
 		ax, az := a.pos()
@@ -1570,6 +1572,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	sort.Slice(faces, func(i, j int) bool {
 		if faces[i].pass != faces[j].pass {
 			return faces[i].pass < faces[j].pass
+		}
+		if faces[i].front || faces[j].front {
+			return faces[i].raw > faces[j].raw
 		}
 		return faces[i].dist > faces[j].dist
 	})
@@ -1710,23 +1715,34 @@ func (g *Game) drawAtlas(screen *ebiten.Image) {
 	}
 }
 
-// MinimapRect is the minimap's framed area on screen, in device pixels.
+// minimapLayout is the minimap's cell size and the margin around its cells, wide enough for Panel's frame.
+func minimapLayout() (cs, m float32) {
+	cs = float32(5 * ebiten.Monitor().DeviceScaleFactor())
+	m = 2 * cs
+	if PanelBorder != nil {
+		m = max(m, float32(PanelBorder())+cs/2)
+	}
+	return cs, m
+}
+
+// MinimapRect is the minimap's framed area on screen, in device pixels, in the top right corner.
 func MinimapRect() image.Rectangle {
 	const r = 7
-	cs := float32(5 * ebiten.Monitor().DeviceScaleFactor())
-	ox, oy, m := float32(W)-cs*(2*r+3), 2*cs, 2*cs
-	return image.Rect(int(ox-m), int(oy-m), int(ox+cs*(2*r+1)+m), int(oy+cs*(2*r+1)+m))
+	cs, m := minimapLayout()
+	side := int(2*m + cs*(2*r+1))
+	return image.Rect(W-side, 0, W, side)
 }
 
 // drawMinimap: 15x15 cells around the player top-right, walls as squares, player as an arrow along the camera.
 func (g *Game) drawMinimap(screen *ebiten.Image, c cam) {
-	const r = 7                                             // half window
-	cs := float32(5 * ebiten.Monitor().DeviceScaleFactor()) // cell size in px
-	ox, oy := float32(W)-cs*(2*r+3), 2*cs
+	const r = 7 // half window
+	cs, m := minimapLayout()
+	mr := MinimapRect()
+	ox, oy := float32(mr.Min.X)+m, float32(mr.Min.Y)+m
 	if Panel != nil {
 		Panel(screen, MinimapRect())
 	} else {
-		vector.DrawFilledRect(screen, ox-cs, oy-cs, cs*(2*r+3), cs*(2*r+3), color.RGBA{0, 0, 0, 160}, false)
+		vector.DrawFilledRect(screen, float32(mr.Min.X), float32(mr.Min.Y), float32(mr.Dx()), float32(mr.Dy()), color.RGBA{0, 0, 0, 160}, false)
 	}
 	for y := g.y - r; y <= g.y+r; y++ {
 		for x := g.x - r; x <= g.x+r; x++ {

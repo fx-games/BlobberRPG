@@ -15,6 +15,9 @@ func TestCore(t *testing.T) {
 	if _, err := ebiten.NewShader([]byte(ditherSrc)); err != nil {
 		t.Fatal("dither shader:", err)
 	}
+	if _, err := ebiten.NewShader([]byte(texSrc)); err != nil {
+		t.Fatal("texture shader:", err)
+	}
 	g := &Game{x: 1, y: 1, dir: 0, smooth: true, t: 1, tx: 1.5, tz: 1.5}
 	g.act(ebiten.KeyW) // wall to the north: no move
 	if g.moving {

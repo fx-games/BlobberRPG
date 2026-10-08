@@ -101,19 +101,39 @@ func (g *Game) darkMul() float64 {
 	return 1 / (g.torch + math.Min(1.5, lightLeft)*0.5)
 }
 
-// darkness is Deepnight's ramped distance darkness: 7 hard bands, scaled by mul. The shader has a copy.
-func darkness(dist, mul float64) float64 {
-	r := dist / 5.7
-	if r >= 0.6 {
-		r += 0.04
+// torchPos is the torch in camera space (x right, y down, z ahead): held in the right hand, swaying a little.
+func (g *Game) torchPos() [3]float64 {
+	t := g.time
+	return [3]float64{0.22 + 0.015*math.Sin(t*1.7), -0.05 + 0.01*math.Sin(t*2.3+1), 0.05}
+}
+
+// flicker is the torch's brightness factor: a few incommensurate sines, so it never visibly repeats.
+func (g *Game) flicker() float64 {
+	t := g.time
+	return 1 + 0.06*math.Sin(t*7.3) + 0.04*math.Sin(t*13.1+1) + 0.03*math.Sin(t*23.7+2)
+}
+
+// torchPow is the torch's intensity, flickering; it saturates within arm's length.
+func (g *Game) torchPow() float64 {
+	if openSky {
+		return 1e3
 	}
-	if r >= 0.4 {
-		r += 0.08
+	return 1.6 * g.flicker()
+}
+
+// torchRange is the distance where the inverse-square falloff 1/(1+d²/R²) has halved: further with
+// the torch setting or a Light spell.
+func (g *Game) torchRange() float64 {
+	if openSky {
+		return 1e3
 	}
-	if r >= 0.2 {
-		r += 0.04
-	}
-	return math.Max(0, math.Min(1, math.Floor(r*r*7)/7*mul))
+	return 2.4 / math.Sqrt(g.darkMul())
+}
+
+// torchLight is how much torch light reaches distance d, facing it head on (0..1). The shader has a copy.
+func (g *Game) torchLight(d float64) float64 {
+	r := g.torchRange()
+	return math.Min(1, g.torchPow()/(1+d*d/(r*r)))
 }
 
 // Face modes for the texture shader.
@@ -123,13 +143,16 @@ const (
 	modeGlow          // additive, tinted by the vertex colour
 )
 
-// texSrc: perspective-correct texturing (custom = u/z, v/z, 1/z, y/z), then Deepnight's banded
-// darkness with fog tint.
+// texSrc: perspective-correct texturing (custom = u/z, v/z, 1/z, y/z), lit by the flickering torch
+// (banded with Dither) and faded to Deepnight's fog tint.
 const texSrc = `//kage:unit pixels
 package main
 
 var Mode float
-var Mul float     // darkness strength
+var Pow float     // torch intensity (flicker included)
+var Range float   // torch falloff range
+var Torch vec3    // torch position in camera space
+var Warm vec3     // torch colour (white in daylight)
 var Inc float     // constant extra fade toward the fog: 0.3 sides, 0.4 floors, 0 fronts
 var HasLit float  // 1 when image 2 is a light map
 var Dither float  // 1: checker dither and hard darkness bands; 0: smooth darkness
@@ -145,21 +168,17 @@ var Lamp vec3     // the moving light reaching this face most, in camera space
 
 func tex(uv vec2) vec4 { return imageSrc0At(imageSrc0Origin() + fract(uv)*imageSrc0Size()) }
 
-func darkness(d, mul float) float {
-	r := d / 5.7
-	if r >= 0.6 {
-		r += 0.04
-	}
-	if r >= 0.4 {
-		r += 0.08
-	}
-	if r >= 0.2 {
-		r += 0.04
-	}
+// torch is the light reaching camera-space point p with normal n: inverse-square falloff, Lambert
+// (with some ambient so faces edge-on to the torch are not black), in 7 hard bands with Dither.
+func torch(p, n vec3, chk float) float {
+	lv := Torch - p
+	d := length(lv)
+	l := Pow / (1 + d*d/(Range*Range))
+	l *= 0.3 + 0.7*max(dot(n, lv/d), 0)
 	if Dither == 0 {
-		return clamp(r*r*mul, 0, 1)
+		return clamp(l, 0, 1)
 	}
-	return clamp(floor(r*r*7)/7*mul, 0, 1)
+	return clamp(ceil(l*7-chk*0.5)/7, 0, 1)
 }
 
 func shade(c vec3, dark, inc float) vec3 {
@@ -196,10 +215,9 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	}
 	rgb := c.rgb / c.a
 	x := (dstPos.x - Center.x) / Focal * z
-	h := 0.5 - custom.w*z // height above the floor
+	p := vec3(x, custom.w*z, z)
 	q := floor(dstPos.xy / Px)
 	chk := mod(q.x+q.y, 2) * Dither
-	dist := length(vec2(x*1.5, z*0.7)) + (h+chk*0.15)*1.8
 	lit := 0.0
 	if HasLit > 0 {
 		lit = imageSrc2At(imageSrc0Origin() + fract(uv)*imageSrc0Size()).r
@@ -211,12 +229,12 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		// away darkens, by how far the tilt turns the surface toward the light relative to the flat face
 		// (linear in the slope, so on average the surface keeps its brightness)
 		s := imageSrc1At(imageSrc0Origin()+fract(uv)*imageSrc0Size()).rg*2 - 1
-		p := vec3(x, custom.w*z, z)
-		// the torch at the eye, and where a lantern reaches, that lantern
-		r := mix(relief(s, -normalize(p)), relief(s, normalize(Lamp-p)), near)
+		// the torch, and where a lantern reaches, that lantern
+		r := mix(relief(s, normalize(Torch-p)), relief(s, normalize(Lamp-p)), near)
 		rgb *= clamp(1+Bump*r, 0.4, 1.6)
 	}
-	out := shade(rgb, darkness(dist, Mul*(1-0.7*lit)*(1-near)), Inc*(1-lit)*(1-near)) + rgb*color.rgb*0.3
+	dark := (1 - torch(p, N, chk)) * (1 - 0.7*lit) * (1 - near)
+	out := shade(rgb*mix(Warm, vec3(1), max(lit, near)), dark, Inc*(1-lit)*(1-near)) + rgb*color.rgb*0.3
 	return vec4(out*c.a, c.a)
 }
 `
@@ -286,15 +304,22 @@ func btof(b bool) float64 {
 func (g *Game) faceOptions(c cam, f *face) *ebiten.DrawTrianglesShaderOptions {
 	op := &ebiten.DrawTrianglesShaderOptions{}
 	op.Images[0], op.Images[1], op.Images[2] = f.tex, f.tex, f.tex
-	u := map[string]any{"Mode": float32(f.mode), "Dither": float32(btof(g.dither)), "Mul": float32(g.darkMul()), "Inc": float32(f.inc),
+	tp, warm := g.torchPos(), []float32{1.08, 0.94, 0.78}
+	if openSky {
+		warm = []float32{1, 1, 1}
+	}
+	u := map[string]any{"Mode": float32(f.mode), "Dither": float32(btof(g.dither)), "Pow": float32(g.torchPow()), "Range": float32(g.torchRange()), "Inc": float32(f.inc),
+		"Torch": []float32{float32(tp[0]), float32(tp[1]), float32(tp[2])}, "Warm": warm,
 		"Center": []float32{float32(W) / 2, float32(H) / 2}, "Focal": float32(focal), "Px": float32(math.Max(1, float64(W)/500))}
 	if m := f.m; m != nil && m.lit != nil && Settings.LightMaps {
 		op.Images[2], u["HasLit"] = m.lit, float32(1)
 	}
-	if s := slopes[f.tex]; s != nil && f.mode == modeShaded && Settings.NormalMaps {
-		if t, b, n, ok := frame(c, f); ok {
-			op.Images[1], u["HasBump"], u["Bump"], u["T"], u["B"], u["N"] = s, float32(1), float32(bump*2), t, b, n
-			u["Lamp"] = lamp(c, f)
+	if f.mode == modeShaded {
+		if t, b, n, ok := frame(c, f); ok { // the normal is for the torch's Lambert term too
+			u["T"], u["B"], u["N"] = t, b, n
+			if s := slopes[f.tex]; s != nil && Settings.NormalMaps {
+				op.Images[1], u["HasBump"], u["Bump"], u["Lamp"] = s, float32(1), float32(bump*2), lamp(c, f)
+			}
 		}
 	}
 	if f.mode == modeGlow {

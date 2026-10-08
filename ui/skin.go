@@ -255,6 +255,7 @@ func Install() {
 	blobber.SignImage = SignImage
 	blobber.BoardImage = BoardImage
 	blobber.Panel = Panel
+	blobber.PanelBorder = func() int { return 14 * K(cw, ch) } // DarkFrame's 14 px border
 	blobber.Help = &HelpScreen{}
 }
 
