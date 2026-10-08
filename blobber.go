@@ -305,6 +305,7 @@ func genStone(bw, bh int, offset bool, base, mortar [3]float64, lx, ly float64) 
 	}
 	img := ebiten.NewImage(tex, tex)
 	at := func(x, y int) float64 { return h[((y+tex)%tex)*tex+(x+tex)%tex] }
+	defer addSlopes(img, tex, tex, func(x, y int) float64 { return h[y*tex+x] })
 	for y := 0; y < tex; y++ {
 		for x := 0; x < tex; x++ {
 			gx, gy := at(x+1, y)-at(x-1, y), at(x, y+1)-at(x, y-1)

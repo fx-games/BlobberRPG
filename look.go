@@ -14,6 +14,27 @@ import (
 
 var fogCol = color.RGBA{0x16, 0x10, 0x23, 255}
 
+// slopes holds each wall, floor and ceiling texture's slope map for the normal mapping: red and
+// green are the height's slope along u and v, 0.5 flat.
+var slopes = map[*ebiten.Image]*ebiten.Image{}
+
+// addSlopes makes img's slope map from its w×h height field (wrapping, like the texture).
+func addSlopes(img *ebiten.Image, w, h int, height func(x, y int) float64) {
+	at := func(x, y int) float64 { return height((x+w)%w, (y+h)%h) }
+	pix := make([]byte, 4*w*h)
+	for y := range h {
+		for x := range w {
+			i := 4 * (y*w + x)
+			pix[i] = u8(128 + 127*(at(x+1, y)-at(x-1, y)))
+			pix[i+1] = u8(128 + 127*(at(x, y+1)-at(x, y-1)))
+			pix[i+3] = 255
+		}
+	}
+	s := ebiten.NewImage(w, h)
+	s.WritePixels(pix)
+	slopes[img] = s
+}
+
 // mat is a wall material: its front texture, the generated ones' left and right lit variants
 // (nil for painted textures, which use img on every face), and an optional light map.
 type mat struct {
@@ -114,6 +135,11 @@ var HasLit float  // 1 when image 2 is a light map
 var Center vec2   // screen centre
 var Focal float
 var Px float      // screen pixels per view pixel of theirs (500 wide), for the checker dither
+var HasBump float // 1 when image 1 is a slope map
+var Bump float    // normal mapping strength
+var T vec3        // the face's u and v directions and normal, in camera space (x right, y down, z ahead)
+var B vec3
+var N vec3
 
 func tex(uv vec2) vec4 { return imageSrc0At(imageSrc0Origin() + fract(uv)*imageSrc0Size()) }
 
@@ -166,7 +192,15 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	dist := length(vec2(x*1.5, z*0.7)) + (h+chk*0.15)*1.8
 	lit := 0.0
 	if HasLit > 0 {
-		lit = imageSrc2At(imageSrc2Origin() + fract(uv)*imageSrc2Size()).r
+		lit = imageSrc2At(imageSrc0Origin() + fract(uv)*imageSrc0Size()).r
+	}
+	if HasBump > 0 {
+		// normal mapping, lit by the torch at the eye: a slope facing the light brightens, one facing
+		// away darkens, by how far the tilt turns the surface toward the light relative to the flat face
+		// (linear in the slope, so on average the surface keeps its brightness)
+		s := imageSrc1At(imageSrc0Origin()+fract(uv)*imageSrc0Size()).rg*2 - 1
+		l := -normalize(vec3(x, custom.w*z, z))
+		rgb *= clamp(1+Bump*(s.x*dot(l, T)+s.y*dot(l, B))/max(dot(N, l), 0.3), 0.4, 1.6)
 	}
 	// the moving lights (vertex colour) push the darkness back and tint what they reach
 	near := clamp(max(color.r, max(color.g, color.b)), 0, 1)
@@ -174,6 +208,40 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	return vec4(out*c.a, c.a)
 }
 `
+
+// frame is face f's u and v directions and its normal toward the eye, in camera space.
+func frame(c cam, f *face) (t, b, n []float32, ok bool) {
+	p0, p1, p3 := f.v[0], f.v[1], f.v[3]
+	e1 := [3]float64{p1.x - p0.x, p1.y - p0.y, p1.z - p0.z}
+	e2 := [3]float64{p3.x - p0.x, p3.y - p0.y, p3.z - p0.z}
+	du1, dv1, du2, dv2 := p1.u-p0.u, p1.v-p0.v, p3.u-p0.u, p3.v-p0.v
+	det := du1*dv2 - du2*dv1
+	if math.Abs(det) < 1e-9 {
+		return nil, nil, nil, false
+	}
+	var tv, bv [3]float64
+	for i := range 3 {
+		tv[i] = (e1[i]*dv2 - e2[i]*dv1) / det
+		bv[i] = (e2[i]*du1 - e1[i]*du2) / det
+	}
+	// to camera space (y stays), unit length
+	cs := func(v [3]float64) [3]float64 {
+		r := [3]float64{v[0]*c.rtx + v[2]*c.rtz, v[1], v[0]*c.fwx + v[2]*c.fwz}
+		l := math.Hypot(math.Hypot(r[0], r[1]), r[2])
+		return [3]float64{r[0] / l, r[1] / l, r[2] / l}
+	}
+	tv, bv = cs(tv), cs(bv)
+	nv := [3]float64{tv[1]*bv[2] - tv[2]*bv[1], tv[2]*bv[0] - tv[0]*bv[2], tv[0]*bv[1] - tv[1]*bv[0]}
+	nl := math.Hypot(math.Hypot(nv[0], nv[1]), nv[2])
+	dx, dz := p0.x-c.x, p0.z-c.z
+	if nv[0]*(dx*c.rtx+dz*c.rtz)+nv[1]*p0.y+nv[2]*(dx*c.fwx+dz*c.fwz) > 0 { // facing away: flip toward the eye
+		nl = -nl
+	}
+	f32 := func(v [3]float64, l float64) []float32 {
+		return []float32{float32(v[0] / l), float32(v[1] / l), float32(v[2] / l)}
+	}
+	return f32(tv, 1), f32(bv, 1), f32(nv, nl), true
+}
 
 // faceOptions sets the texture shader's images and uniforms for face f seen from c.
 func (g *Game) faceOptions(c cam, f *face) *ebiten.DrawTrianglesShaderOptions {
@@ -183,6 +251,11 @@ func (g *Game) faceOptions(c cam, f *face) *ebiten.DrawTrianglesShaderOptions {
 		"Center": []float32{float32(W) / 2, float32(H) / 2}, "Focal": float32(focal), "Px": float32(math.Max(1, float64(W)/500))}
 	if m := f.m; m != nil && m.lit != nil {
 		op.Images[2], u["HasLit"] = m.lit, float32(1)
+	}
+	if s := slopes[f.tex]; s != nil && f.mode == modeShaded {
+		if t, b, n, ok := frame(c, f); ok {
+			op.Images[1], u["HasBump"], u["Bump"], u["T"], u["B"], u["N"] = s, float32(1), float32(bump*2), t, b, n
+		}
 	}
 	if f.mode == modeGlow {
 		op.Blend = ebiten.BlendLighter

@@ -25,7 +25,15 @@ func wallTexture(name string) *ebiten.Image {
 	if err != nil {
 		return nil
 	}
-	return ebiten.NewImageFromImage(img)
+	t := ebiten.NewImageFromImage(img)
+	if !strings.HasSuffix(name, "_light") { // painted: the brightness stands in for the height
+		b := img.Bounds()
+		addSlopes(t, b.Dx(), b.Dy(), func(x, y int) float64 {
+			r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			return (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(bl)) / 65535
+		})
+	}
+	return t
 }
 
 // paintedWalls reads assets/walls/walls.txt: map character -> texture name.
