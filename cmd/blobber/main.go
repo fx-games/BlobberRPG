@@ -154,7 +154,8 @@ func report(err error, ok string) {
 }
 
 // devOpen opens windows named in BLOBBER_OPEN (comma separated) at startup, for checking the look
-// together with BLOBBER_SHOT: inventory[:ITEM to wear], town:KIND, cutscene:NAME, hit, prompt, sign.
+// together with BLOBBER_SHOT: inventory[:ITEM to wear], town:KIND, cutscene:NAME, hit, prompt, sign,
+// map:NAME:X:Y:DIR (DIR 0-3, north first).
 func devOpen(host *console) {
 	for _, s := range strings.Split(os.Getenv("BLOBBER_OPEN"), ",") {
 		kind, arg, _ := strings.Cut(s, ":")
@@ -168,6 +169,17 @@ func devOpen(host *console) {
 			blobber.Modal = inv
 		case "town":
 			host.Town(arg)
+		case "map": // after the first frame, like sign
+			var m string
+			var x, y, d int
+			fmt.Sscanf(strings.ReplaceAll(arg, ":", " "), "%s %d %d %d", &m, &x, &y, &d)
+			hud := blobber.HUD
+			blobber.HUD = func(s *ebiten.Image) {
+				blobber.HUD = hud
+				host.Teleport(m, x, y)
+				blobber.Face(d)
+				hud(s)
+			}
 		case "cutscene":
 			host.Cutscene(arg)
 		case "hit":
