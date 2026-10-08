@@ -1103,7 +1103,7 @@ func (g *Game) tween() {
 
 // updateMenu reports true when Quit was chosen.
 func (g *Game) updateMenu() bool {
-	n := 7
+	n := 6
 	if KeyRepeated(ebiten.KeyUp) {
 		g.sel = (g.sel + n - 1) % n
 	}
@@ -1111,12 +1111,12 @@ func (g *Game) updateMenu() bool {
 		g.sel = (g.sel + 1) % n
 	}
 	pick := KeyJustPressed(ebiten.KeyEnter) || KeyJustPressed(ebiten.KeySpace) || KeyJustPressed(ebiten.KeyRight)
-	if g.sel == 5 && pick && OnTeleportMenu != nil {
+	if g.sel == 4 && pick && OnTeleportMenu != nil {
 		g.menu = false
 		OnTeleportMenu()
 		return false
 	}
-	if g.sel == 6 && pick {
+	if g.sel == 5 && pick {
 		return true
 	}
 	if pick || KeyJustPressed(ebiten.KeyLeft) {
@@ -1128,13 +1128,6 @@ func (g *Game) updateMenu() bool {
 		case 2:
 			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
 		case 3:
-			d := 0.25
-			if KeyJustPressed(ebiten.KeyLeft) {
-				d = -0.25
-			}
-			bump = math.Max(0, math.Min(2, bump+d))
-			genTextures() // baked at startup, so re-bake
-		case 4:
 			ebiten.SetFullscreen(!ebiten.IsFullscreen())
 		}
 	}
@@ -1595,7 +1588,7 @@ func onOff(b bool) string {
 }
 
 func (g *Game) drawMenu(screen *ebiten.Image) {
-	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), fmt.Sprintf("Heightmap bump:    %.2f", bump), "Fullscreen:        " + onOff(ebiten.IsFullscreen()), "Teleport to level", "Quit game"}
+	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), "Fullscreen:        " + onOff(ebiten.IsFullscreen()), "Teleport to level", "Quit game"}
 	if Window != nil {
 		Window(screen, "MENU", append(items, "", "Enter changes, Esc closes"), g.sel, false)
 		return
