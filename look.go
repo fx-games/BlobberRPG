@@ -164,12 +164,17 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	side := 0.0
 	if Bump > 0 {
 		// march from the face plane into the wall until the ray is below the height field
-		d := (uv - Eye.xy) / Eye.z
+		// at grazing angles the ray would reach far along the wall and the texture would swim:
+		// cap the sideways shift at theirs, 20/256 of a wall
+		d := (uv - Eye.xy) / max(Eye.z, 0.001)
+		if l := length(d) * Bump; l > 20.0/256 {
+			d *= 20.0 / 256 / l
+		}
 		prev := hei(uv)
 		hit := 0.0
-		for i := 0; i < 12; i++ {
+		for i := 0; i < 24; i++ {
 			if hit == 0 {
-				s := Bump * float(i) / 11
+				s := Bump * float(i) / 23
 				p := uv + d*s
 				h := hei(p)
 				if s >= (1-h)*Bump {
