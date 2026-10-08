@@ -136,6 +136,7 @@ func main() {
 	}
 
 	ui.Install()
+	loadSettings()
 	devOpen(host)
 
 	host.title()

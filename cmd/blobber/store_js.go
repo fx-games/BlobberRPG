@@ -7,17 +7,20 @@ import (
 	"syscall/js"
 )
 
-const saveKey = "blobber.sav"
+func writeSave(b []byte) error      { return store("blobber.sav", b) }
+func readSave() ([]byte, error)     { return load("blobber.sav") }
+func writeSettings(b []byte) error  { return store("blobber.settings", b) }
+func readSettings() ([]byte, error) { return load("blobber.settings") }
 
-func writeSave(b []byte) error {
-	js.Global().Get("localStorage").Call("setItem", saveKey, string(b))
+func store(key string, b []byte) error {
+	js.Global().Get("localStorage").Call("setItem", key, string(b))
 	return nil
 }
 
-func readSave() ([]byte, error) {
-	v := js.Global().Get("localStorage").Call("getItem", saveKey)
+func load(key string) ([]byte, error) {
+	v := js.Global().Get("localStorage").Call("getItem", key)
 	if v.IsNull() {
-		return nil, errors.New("no save")
+		return nil, errors.New("nothing stored")
 	}
 	return []byte(v.String()), nil
 }

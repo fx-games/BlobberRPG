@@ -49,6 +49,21 @@ func (c *console) saveGame() error {
 	return writeSave(b)
 }
 
+// loadSettings starts the game with the saved options (defaults when there are none) and saves
+// them whenever they change.
+func loadSettings() {
+	if b, err := readSettings(); err == nil {
+		json.Unmarshal(b, &blobber.Settings) // a broken file keeps the defaults for what it can't fill
+	}
+	blobber.OnSettings = func(o blobber.Options) {
+		if b, err := json.MarshalIndent(o, "", "  "); err == nil {
+			if err := writeSettings(b); err != nil {
+				blobber.Message("Settings not saved: " + err.Error())
+			}
+		}
+	}
+}
+
 // load replaces the running game with the saved one. The party pointer stays, so UI closures keep working.
 func (c *console) loadGame() error {
 	b, err := readSave()

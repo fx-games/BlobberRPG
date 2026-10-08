@@ -1172,6 +1172,10 @@ func (g *Game) updateMenu() bool {
 		case 3:
 			ebiten.SetFullscreen(!ebiten.IsFullscreen())
 		}
+		Settings = Options{Smooth: g.smooth, Dither: g.dither, Fullscreen: ebiten.IsFullscreen(), Torch: g.torch}
+		if OnSettings != nil {
+			OnSettings(Settings)
+		}
 	}
 	return false
 }
@@ -1801,6 +1805,19 @@ var (
 	msgUntil float64
 )
 
+// Options are the settings on the Options page.
+type Options struct {
+	Smooth, Dither, Fullscreen bool
+	Torch                      float64
+}
+
+// Settings are the options Run starts with; set them before Run (from a settings file).
+// OnSettings is called with the new options whenever the player changes one.
+var (
+	Settings   = Options{Smooth: true, Dither: true, Torch: 1}
+	OnSettings func(Options)
+)
+
 func Run(lvl []string, x, y, dir int) error {
 	genTextures()
 	for _, e := range ents {
@@ -1821,7 +1838,10 @@ func Run(lvl []string, x, y, dir int) error {
 	if err != nil {
 		return err
 	}
-	g := &Game{dither: true, smooth: true, torch: 1, scene: ebiten.NewImage(W, H), shader: sh, texShader: tsh}
+	if Settings.Fullscreen {
+		ebiten.SetFullscreen(true)
+	}
+	g := &Game{dither: Settings.Dither, smooth: Settings.Smooth, torch: Settings.Torch, scene: ebiten.NewImage(W, H), shader: sh, texShader: tsh}
 	game = g
 	g.ta = float64(dir) * math.Pi / 2
 	g.dir = dir
