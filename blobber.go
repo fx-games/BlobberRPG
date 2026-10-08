@@ -1,6 +1,6 @@
 // Blobber: a first-person grid crawler ("gridder") in pure 2D, Deepnight style.
 // No 3D pipeline: every surface is a flat quad, transformed by hand, painted far-to-near.
-// The texture shader adds Deepnight's look (look.go): heightmap extrusion, stepped darkness, light maps.
+// The texture shader adds Deepnight's look (look.go): stepped darkness into fog, light maps, glows.
 package blobber
 
 import (
@@ -242,11 +242,12 @@ func material(x, y int) *mat {
 
 var (
 	rng  = rand.New(rand.NewSource(7))
-	bump = 1.0 // heightmap extrusion strength of the baked walls
+	bump = 1.0 // heightmap strength baked into the textures
 )
 
-// genStone bakes a heightmap of blocks into a lit texture, lit from lx,ly, and returns the heightmap too.
-func genStone(bw, bh int, offset bool, base, mortar [3]float64, lx, ly float64) (*ebiten.Image, *ebiten.Image) {
+// genStone bakes a heightmap of blocks into a lit texture. lx,ly is the baked light direction,
+// so a side-facing wall gets its grooves shaded as if seen from the corridor.
+func genStone(bw, bh int, offset bool, base, mortar [3]float64, lx, ly float64) *ebiten.Image {
 	h := make([]float64, tex*tex)
 	noise := make([]float64, tex*tex)
 	for y := 0; y < tex; y++ {
@@ -261,7 +262,7 @@ func genStone(bw, bh int, offset bool, base, mortar [3]float64, lx, ly float64) 
 			noise[y*tex+x] = 0.85 + 0.3*rng.Float64()
 		}
 	}
-	img, hei := ebiten.NewImage(tex, tex), ebiten.NewImage(tex, tex)
+	img := ebiten.NewImage(tex, tex)
 	at := func(x, y int) float64 { return h[((y+tex)%tex)*tex+(x+tex)%tex] }
 	for y := 0; y < tex; y++ {
 		for x := 0; x < tex; x++ {
@@ -273,10 +274,9 @@ func genStone(bw, bh int, offset bool, base, mortar [3]float64, lx, ly float64) 
 			}
 			n := noise[y*tex+x]
 			img.Set(x, y, color.RGBA{u8(c[0] * n * shade), u8(c[1] * n * shade), u8(c[2] * n * shade), 255})
-			hei.Set(x, y, color.Gray{u8(255 * at(x, y))})
 		}
 	}
-	return img, hei
+	return img
 }
 
 func u8(v float64) uint8 { return uint8(math.Max(0, math.Min(255, v))) }
@@ -336,25 +336,28 @@ func genTextures() {
 	rng.Seed(7)
 	atlas = nil
 	stoneMat := func(bw, bh int, offset bool, c [2][3]float64) *mat {
-		img, hei := genStone(bw, bh, offset, c[0], c[1], 0.3, -1)
-		return &mat{img: img, hei: hei}
+		return &mat{
+			img:   genStone(bw, bh, offset, c[0], c[1], 0.3, -1),
+			right: genStone(bw, bh, offset, c[0], c[1], 1, -0.4),  // wall on our left, face points right
+			left:  genStone(bw, bh, offset, c[0], c[1], -1, -0.4), // wall on our right, face points left
+		}
 	}
 	for ch, c := range MatColors {
 		mats[ch] = stoneMat(64, 32, true, c)
 	}
 	door := stoneMat(16, 128, false, MatColors['W']) // vertical planks
 	mats[Door], mats[Locked] = door, door
-	painted := map[byte]string{'#': "stone"} // painted textures, each with its NAME_height.png from tools/heightmap.py
+	painted := map[byte]string{'#': "stone"} // painted textures, each with an optional NAME_light.png
 	for ch, name := range paintedWalls() {
 		painted[ch] = name
 	}
 	for ch, name := range painted {
 		if t := wallTexture(name); t != nil {
-			mats[ch] = &mat{img: t, hei: wallTexture(name + "_height"), lit: wallTexture(name + "_light")}
+			mats[ch] = &mat{img: t, lit: wallTexture(name + "_light")}
 		}
 	}
-	texFloor, _ = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
-	texCeil, _ = genStone(64, 64, false, [3]float64{70, 66, 72}, [3]float64{40, 38, 42}, 0.4, 1)
+	texFloor = genStone(64, 64, false, [3]float64{115, 110, 105}, [3]float64{60, 58, 55}, 0.4, -1)
+	texCeil = genStone(64, 64, false, [3]float64{70, 66, 72}, [3]float64{40, 38, 42}, 0.4, 1)
 	if t := wallTexture("floor"); t != nil { // painted floor and ceiling, when assets/walls has them
 		texFloor = t
 	}
@@ -1101,7 +1104,7 @@ type face struct {
 	tex  *ebiten.Image
 	dist float64
 	sub  int
-	m    *mat    // wall material: heightmap extrusion and light map
+	m    *mat    // wall material, for its light map
 	inc  float64 // constant extra fade toward the fog (look.go)
 	mode int     // modeShaded, modeUnlit or modeGlow
 	tint [3]float64
@@ -1343,7 +1346,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				continue
 			}
 			m := material(cx+dirs[i][0], cy+dirs[i][1]).load()
-			f := q(vert{s.ax, -0.5, s.az, 0, 0, 0, 0, 0}, vert{s.bx, -0.5, s.bz, 1, 0, 0, 0, 0}, vert{s.bx, 0.5, s.bz, 1, 1, 0, 0, 0}, vert{s.ax, 0.5, s.az, 0, 1, 0, 0, 0}, m.img, 3)
+			f := q(vert{s.ax, -0.5, s.az, 0, 0, 0, 0, 0}, vert{s.bx, -0.5, s.bz, 1, 0, 0, 0, 0}, vert{s.bx, 0.5, s.bz, 1, 1, 0, 0, 0}, vert{s.ax, 0.5, s.az, 0, 1, 0, 0, 0}, m.face(s.nx*c.rtx+s.nz*c.rtz), 3)
 			f.m = m
 			if math.Abs(s.nx*c.rtx+s.nz*c.rtz) > 0.5 { // a side wall: theirs fade 30% toward the fog
 				f.inc = 0.3
@@ -1564,7 +1567,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 
 func (g *Game) drawAtlas(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{30, 30, 40, 255})
-	font.Print(screen, "Texture atlas (F12 to return). Walls are extruded from their heightmaps in the shader.", 4, 0)
+	font.Print(screen, "Texture atlas (F12 to return). Bump details baked from the heightmap per facing.", 4, 0)
 	for i, a := range atlas {
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Scale(2, 2)
