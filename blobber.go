@@ -1193,8 +1193,10 @@ func (g *Game) updateMenu() bool {
 		case 3:
 			g.dither = !g.dither
 		case 4:
-			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
+			Settings.NormalMaps = !Settings.NormalMaps
 		case 5:
+			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
+		case 6:
 			ebiten.SetFullscreen(!ebiten.IsFullscreen())
 		}
 		Settings.Smooth, Settings.Dither, Settings.Fullscreen, Settings.Torch = g.smooth, g.dither, ebiten.IsFullscreen(), g.torch
@@ -1211,7 +1213,7 @@ func (g *Game) menuItems() []string {
 		bar := int(math.Round((Settings.Speed - minSpeed) / 0.25))
 		return []string{"Smooth movement:   " + onOff(g.smooth),
 			"Walk speed:        " + strings.Repeat("#", bar+1) + strings.Repeat("-", int((maxSpeed-minSpeed)/0.25)-bar) + fmt.Sprintf(" %.2fx", Settings.Speed),
-			"Smooth monsters:   " + onOff(Settings.SmoothMonsters), "Dithered darkness: " + onOff(g.dither),
+			"Smooth monsters:   " + onOff(Settings.SmoothMonsters), "Dithered darkness: " + onOff(g.dither), "Normal mapping:    " + onOff(Settings.NormalMaps),
 			fmt.Sprintf("Torch intensity:   %.1f", g.torch), "Fullscreen:        " + onOff(ebiten.IsFullscreen())}
 	}
 	return []string{"Options", "Teleport to level", "Quit game"}
@@ -1835,7 +1837,7 @@ var (
 
 // Options are the settings on the Options page.
 type Options struct {
-	Smooth, Dither, Fullscreen, SmoothMonsters bool
+	Smooth, Dither, Fullscreen, SmoothMonsters, NormalMaps bool
 	Torch                                      float64
 	Speed                                      float64 // walk and turn speed, minSpeed to maxSpeed times the normal
 }
@@ -1845,7 +1847,7 @@ const minSpeed, maxSpeed = 0.5, 2.0
 // Settings are the options Run starts with; set them before Run (from a settings file).
 // OnSettings is called with the new options whenever the player changes one.
 var (
-	Settings   = Options{Smooth: true, Dither: true, SmoothMonsters: true, Torch: 1, Speed: 1}
+	Settings   = Options{Smooth: true, Dither: true, SmoothMonsters: true, NormalMaps: true, Torch: 1, Speed: 1}
 	OnSettings func(Options)
 )
 

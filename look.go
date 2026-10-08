@@ -280,7 +280,7 @@ func (g *Game) faceOptions(c cam, f *face) *ebiten.DrawTrianglesShaderOptions {
 	if m := f.m; m != nil && m.lit != nil {
 		op.Images[2], u["HasLit"] = m.lit, float32(1)
 	}
-	if s := slopes[f.tex]; s != nil && f.mode == modeShaded {
+	if s := slopes[f.tex]; s != nil && f.mode == modeShaded && Settings.NormalMaps {
 		if t, b, n, ok := frame(c, f); ok {
 			op.Images[1], u["HasBump"], u["Bump"], u["T"], u["B"], u["N"] = s, float32(1), float32(bump*2), t, b, n
 			u["Lamp"] = lamp(c, f)
