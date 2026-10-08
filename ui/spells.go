@@ -19,7 +19,7 @@ type Spellbook struct {
 	char         int
 	msg          string
 	hover, hovBt int
-	pad          int // gamepad: the highlighted spell
+	sel          int // the highlighted spell
 	canvas
 }
 
@@ -76,26 +76,23 @@ func (b *Spellbook) Update() bool {
 		return false
 	}
 	if p(ebiten.KeyTab) || p(ebiten.KeyRight) {
-		b.char, b.pad = (b.char+1)%len(b.P.Chars), 0
+		b.char, b.sel = (b.char+1)%len(b.P.Chars), 0
 	}
 	if p(ebiten.KeyLeft) {
-		b.char, b.pad = (b.char+len(b.P.Chars)-1)%len(b.P.Chars), 0
+		b.char, b.sel = (b.char+len(b.P.Chars)-1)%len(b.P.Chars), 0
 	}
-	if n := len(b.known(b.P.Chars[b.char])); n > 0 && blobber.Gamepads() { // d-pad picks, A casts
+	if n := len(b.known(b.P.Chars[b.char])); n > 0 { // up/down pick, Enter casts
 		if p(ebiten.KeyUp) {
-			b.pad = (b.pad + n - 1) % n
+			b.sel = (b.sel + n - 1) % n
 		}
 		if p(ebiten.KeyDown) {
-			b.pad = (b.pad + 1) % n
+			b.sel = (b.sel + 1) % n
 		}
-		if p(ebiten.KeyEnter) {
-			return b.cast(b.pad % n)
+		if p(ebiten.KeyEnter) || p(ebiten.KeySpace) {
+			return b.cast(b.sel % n)
 		}
 	}
 	for i := range 9 {
-		if p(ebiten.Key1 + ebiten.Key(i)) {
-			return b.cast(i)
-		}
 		if p(ebiten.KeyF1+ebiten.Key(i)) && i < len(b.P.Chars) {
 			b.char = i
 		}
@@ -115,8 +112,10 @@ func (b *Spellbook) Update() bool {
 			}
 		}
 	}
-	if b.hover < 0 && blobber.Gamepads() && len(b.known(b.P.Chars[b.char])) > 0 {
-		b.hover = b.pad % len(b.known(b.P.Chars[b.char]))
+	if n := len(b.known(b.P.Chars[b.char])); b.hover < 0 && n > 0 { // no mouse over a spell: the cursor's
+		b.hover = b.sel % n
+	} else if b.hover >= 0 {
+		b.sel = b.hover
 	}
 	if in(x, y, exitBtn) {
 		b.hovBt = 0

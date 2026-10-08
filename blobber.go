@@ -13,6 +13,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -83,22 +84,32 @@ var Help Overlay
 // Keys binds extra keys to host actions; checked while no prompt or modal is open.
 var Keys = map[ebiten.Key]func(){}
 
-// Prompt is a modal question: digits / y / n answer a choice, or free text with Enter (Escape = "").
-// Movement is blocked while one is up; signs and tweens are untouched.
+// Prompt is a modal question: a menu of options picked with up/down and Enter, or free text
+// with Enter. Escape answers "". Movement is blocked while one is up; signs and tweens are untouched.
+//
+// Option lines are written "  <value>  <label>" (value a number, F<number> or y/n); the menu shows
+// only the label and answers with the value. A "(y/n)" line becomes the options Yes and No.
 type Prompt struct {
 	Lines []string
 	Text  bool // free text entry
 	input string
 	on    func(answer string)
-	sel   int // gamepad: the highlighted "  F<n>  name" line, among options()
+	sel   int // the highlighted option
 }
 
-// options are the indices of the "  F<n>  ..." choice lines, which a gamepad steps through.
-func (p *Prompt) options() []int {
-	var out []int
+// optionLine matches "  1  New game", "  F2  Bob", "  y  Yes".
+var optionLine = regexp.MustCompile(`^\s+F?([0-9]+|[yn])\s\s+(\S.*)$`)
+
+type option struct {
+	line         int
+	value, label string
+}
+
+func (p *Prompt) options() []option {
+	var out []option
 	for i, l := range p.Lines {
-		if t := strings.TrimSpace(l); len(t) > 1 && t[0] == 'F' && t[1] >= '1' && t[1] <= '9' {
-			out = append(out, i)
+		if m := optionLine.FindStringSubmatch(l); m != nil {
+			out = append(out, option{i, m[1], m[2]})
 		}
 	}
 	return out
@@ -107,7 +118,15 @@ func (p *Prompt) options() []int {
 var prompt *Prompt
 
 func ShowPrompt(lines []string, text bool, on func(string)) {
-	prompt = &Prompt{Lines: lines, Text: text, on: on}
+	var ls []string
+	for _, l := range lines {
+		if l == "(y/n)" {
+			ls = append(ls, "  y  Yes", "  n  No")
+			continue
+		}
+		ls = append(ls, l)
+	}
+	prompt = &Prompt{Lines: ls, Text: text, on: on}
 }
 
 func (p *Prompt) update() {
@@ -116,9 +135,8 @@ func (p *Prompt) update() {
 		done("")
 		return
 	}
-	chars := string(ebiten.AppendInputChars(nil))
 	if p.Text {
-		p.input += chars
+		p.input += string(ebiten.AppendInputChars(nil))
 		if KeyJustPressed(ebiten.KeyBackspace) && len(p.input) > 0 {
 			p.input = p.input[:len(p.input)-1]
 		}
@@ -127,49 +145,38 @@ func (p *Prompt) update() {
 		}
 		return
 	}
-	if !Gamepads() {
-	} else if opts := p.options(); len(opts) > 0 { // gamepad: up/down choose a character, A takes it
-		if KeyJustPressed(ebiten.KeyUp) {
-			p.sel = (p.sel + len(opts) - 1) % len(opts)
+	opts := p.options()
+	if len(opts) == 0 { // a notice: any confirm closes it
+		if KeyJustPressed(ebiten.KeyEnter) || KeyJustPressed(ebiten.KeySpace) {
+			done("")
 		}
-		if KeyJustPressed(ebiten.KeyDown) {
-			p.sel = (p.sel + 1) % len(opts)
-		}
-		if KeyJustPressed(ebiten.KeyEnter) {
-			done(string(rune('1' + p.sel%len(opts))))
-			return
-		}
-	} else if KeyJustPressed(ebiten.KeyY) { // A on a yes/no question
-		done("y")
-		return
-	} else if KeyJustPressed(ebiten.KeyN) {
-		done("n")
 		return
 	}
-	for i := range 9 { // F1-F9 pick a character, like digits
-		if KeyJustPressed(ebiten.KeyF1 + ebiten.Key(i)) {
-			done(string(rune('1' + i)))
-			return
-		}
+	if KeyJustPressed(ebiten.KeyUp) {
+		p.sel = (p.sel + len(opts) - 1) % len(opts)
 	}
-	for _, r := range chars {
-		if r >= '0' && r <= '9' || r == 'y' || r == 'n' {
-			done(string(r))
-			return
-		}
+	if KeyJustPressed(ebiten.KeyDown) {
+		p.sel = (p.sel + 1) % len(opts)
+	}
+	if KeyJustPressed(ebiten.KeyEnter) || KeyJustPressed(ebiten.KeySpace) {
+		done(opts[p.sel%len(opts)].value)
 	}
 }
 
 func (p *Prompt) draw(screen *ebiten.Image) {
-	lines := p.Lines
+	lines := append([]string{}, p.Lines...)
+	sel := -1
+	for i, o := range p.options() {
+		mark := "   "
+		if i == p.sel {
+			mark, sel = " > ", o.line
+		}
+		lines[o.line] = mark + o.label
+	}
 	if p.Text {
-		lines = append(append([]string{}, lines...), "> "+p.input+"_")
+		lines = append(lines, "> "+p.input+"_")
 	}
 	if Window != nil {
-		sel := -1
-		if opts := p.options(); Gamepads() && len(opts) > 0 && !p.Text {
-			sel = opts[p.sel%len(opts)]
-		}
 		Window(screen, "", lines, sel, true)
 		return
 	}

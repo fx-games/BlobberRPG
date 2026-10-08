@@ -384,7 +384,7 @@ func complete(id string) bool {
 	return true
 }
 
-// spawnMenu is a debug key (N): pick a complete monster of monsters.txt (type its number) and it appears
+// spawnMenu is a debug key (N): pick a complete monster of monsters.txt and it appears
 // 3 cells ahead, or at the farthest open cell before a wall.
 func (c *console) spawnMenu() {
 	ids := slices.DeleteFunc(slices.Sorted(maps.Keys(kinds)), func(id string) bool { return !complete(id) })
@@ -392,7 +392,7 @@ func (c *console) spawnMenu() {
 	for i, id := range ids {
 		lines = append(lines, fmt.Sprintf("  %2d  %s", i+1, id))
 	}
-	blobber.ShowPrompt(append(lines, "", "Type a number, Enter spawns, Esc cancels"), true, func(a string) {
+	blobber.ShowPrompt(append(lines, "", "Enter spawns, Esc cancels"), false, func(a string) {
 		i, err := strconv.Atoi(strings.TrimSpace(a))
 		if err != nil || i < 1 || i > len(ids) {
 			return

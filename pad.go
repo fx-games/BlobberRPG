@@ -6,8 +6,8 @@ package blobber
 //
 //	d-pad / left stick   arrows: walk and turn, move through menus
 //	LB / RB              A / D: strafe
-//	A                    F (use) in the dungeon; Space in the menu; Enter, Space, Y in windows
-//	B                    Esc, N
+//	A                    F (use) in the dungeon; Space in the menu; Enter, Space in windows
+//	B                    Esc
 //	X                    Space: wait a turn
 //	Y                    I: inventory
 //	LT / RT              C: spellbook, J: journal
@@ -57,8 +57,8 @@ func pollPads(context byte) {
 			hold(b(ebiten.StandardGamepadButtonRightBottom), ebiten.KeySpace)
 			hold(b(ebiten.StandardGamepadButtonRightRight), ebiten.KeyEscape)
 		default:
-			hold(b(ebiten.StandardGamepadButtonRightBottom), ebiten.KeyEnter, ebiten.KeySpace, ebiten.KeyY)
-			hold(b(ebiten.StandardGamepadButtonRightRight), ebiten.KeyEscape, ebiten.KeyN)
+			hold(b(ebiten.StandardGamepadButtonRightBottom), ebiten.KeyEnter, ebiten.KeySpace)
+			hold(b(ebiten.StandardGamepadButtonRightRight), ebiten.KeyEscape)
 			hold(b(ebiten.StandardGamepadButtonCenterLeft), ebiten.KeyM) // closes the map
 		}
 	}
@@ -71,6 +71,3 @@ func KeyJustPressed(k ebiten.Key) bool {
 
 // KeyPressed reports a key held on the keyboard or a gamepad.
 func KeyPressed(k ebiten.Key) bool { return ebiten.IsKeyPressed(k) || padHeld[k] }
-
-// Gamepads reports whether a gamepad is connected (prompts and the spellbook then show a cursor).
-func Gamepads() bool { return len(ebiten.AppendGamepadIDs(nil)) > 0 }

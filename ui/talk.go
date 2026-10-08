@@ -20,6 +20,7 @@ type Talk struct {
 	Done func(yes bool)
 
 	page, hover int
+	sel         int // highlighted button
 	canvas
 }
 
@@ -61,20 +62,22 @@ func (t *Talk) answer(yes bool) bool {
 func (t *Talk) Update() bool {
 	p := blobber.KeyJustPressed
 	ask := t.Ask && t.last()
+	labels, boxes := t.buttons()
+	if p(ebiten.KeyLeft) || p(ebiten.KeyUp) || p(ebiten.KeyRight) || p(ebiten.KeyDown) {
+		t.sel = (t.sel + 1) % len(labels)
+	}
+	t.sel %= len(labels)
 	switch {
-	case ask && p(ebiten.KeyY):
-		return t.answer(true)
-	case ask && (p(ebiten.KeyN) || p(ebiten.KeyEscape)):
-		return t.answer(false)
-	case !ask && (p(ebiten.KeyEnter) || p(ebiten.KeySpace) || p(ebiten.KeyEscape)):
-		return t.answer(true)
+	case p(ebiten.KeyEnter) || p(ebiten.KeySpace):
+		return t.answer(labels[t.sel] != "No")
+	case p(ebiten.KeyEscape):
+		return t.answer(!ask)
 	}
 	x, y := t.mouse()
-	labels, boxes := t.buttons()
 	t.hover = -1
 	for i, b := range boxes {
 		if in(x, y, b) {
-			t.hover = i
+			t.hover, t.sel = i, i
 			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 				return t.answer(labels[i] != "No")
 			}
@@ -105,7 +108,7 @@ func (t *Talk) Draw(screen *ebiten.Image) {
 	labels, boxes := t.buttons()
 	for i, b := range boxes {
 		s := Normal
-		if i == t.hover {
+		if i == t.sel {
 			s = Hover
 		}
 		Button(d, b.Min.X, b.Min.Y, b.Dx(), labels[i], s)

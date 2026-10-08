@@ -348,7 +348,11 @@ func ask(vm *events.VM, w *events.Wait) {
 		lines := append([]string{"Who will " + w.Style + "? " + strings.Join(w.Lines, " ")}, blobber.OnPromptAnswer()...)
 		blobber.ShowPrompt(lines, false, func(a string) { resume(digit(a)) })
 	case events.Choose:
-		blobber.ShowPrompt([]string{fmt.Sprintf("Choose 1-%d", w.Options)}, false, func(a string) { resume(max(1, digit(a))) })
+		lines := []string{"Choose:"}
+		for i := 1; i <= w.Options; i++ {
+			lines = append(lines, fmt.Sprintf("  %d  %d", i, i))
+		}
+		blobber.ShowPrompt(lines, false, func(a string) { resume(max(1, digit(a))) })
 	case events.Message:
 		blobber.Modal = &ui.Talk{Who: w.Name, Text: strings.Join(w.Lines, " "), Done: func(bool) { resume(nil) }}
 	case events.YesNo:
