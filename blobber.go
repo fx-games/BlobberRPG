@@ -167,11 +167,10 @@ func (p *Prompt) draw(screen *ebiten.Image) {
 	lines := append([]string{}, p.Lines...)
 	sel := -1
 	for i, o := range p.options() {
-		mark := "   "
 		if i == p.sel {
-			mark, sel = " > ", o.line
+			sel = o.line
 		}
-		lines[o.line] = mark + o.label
+		lines[o.line] = "   " + o.label
 	}
 	if p.Text {
 		lines = append(lines, "> "+p.input+"_")
