@@ -12,4 +12,5 @@ ceiling ice_cave
 monster skeleton_warrior 5 3
 monster skeleton_warrior 9 7
 monster ice_giant 7 5
+monster spear_skeleton 9 1
 item potion 3 3
