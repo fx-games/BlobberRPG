@@ -329,6 +329,11 @@ func (s *Shop) Update() bool {
 			s.Char = i
 		}
 	}
+	if nc := len(s.P.Chars); p(ebiten.KeyPageDown) || p(ebiten.KeyTab) {
+		s.Char = (s.Char + 1) % nc
+	} else if p(ebiten.KeyPageUp) {
+		s.Char = (s.Char + nc - 1) % nc
+	}
 	if cx, cy := ebiten.CursorPosition(); inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		if i := PartyAt(s.P, cx, cy); i >= 0 {
 			s.Char = i
