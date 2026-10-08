@@ -729,6 +729,9 @@ func (g *Game) updateActors(dt float64) {
 	for _, a := range actors {
 		if a.t < 1 {
 			a.t = math.Min(1, a.t+dt/0.3)
+			if !Settings.SmoothMonsters {
+				a.t = 1
+			}
 		}
 		if !a.animate(dt) {
 			live = append(live, a)
@@ -1114,16 +1117,17 @@ func (g *Game) tween() {
 		g.t, g.v, g.moving, g.cool = 1, 0, false, snapRepeat
 		return
 	}
-	top := turnSpeed
+	sp := math.Max(minSpeed, math.Min(maxSpeed, Settings.Speed))
+	top, acc := turnSpeed*sp, walkAccel*sp*sp // acceleration scales with speed², so the ease takes the same share of a step
 	if g.walk {
-		top = walkSpeed
+		top = walkSpeed * sp
 	}
 	d := [2]int{int(math.Round(g.tx - g.fx)), int(math.Round(g.tz - g.fz))}
 	on := KeyPressed(g.walkKey) && prompt == nil && Modal == nil && (!g.walk || !Fighting() && !wall(g.x+d[0], g.y+d[1]))
-	if !on && g.v*g.v >= 2*walkAccel*(1-g.t) { // brake: v²/2a is the distance braking takes
-		g.v = math.Max(0.5, g.v-walkAccel*dt)
+	if !on && g.v*g.v >= 2*acc*(1-g.t) { // brake: v²/2a is the distance braking takes
+		g.v = math.Max(0.5, g.v-acc*dt)
 	} else {
-		g.v = math.Min(top, g.v+walkAccel*dt)
+		g.v = math.Min(top, g.v+acc*dt)
 	}
 	g.t += g.v * dt
 	if g.t < 1 {
@@ -1173,14 +1177,27 @@ func (g *Game) updateMenu() bool {
 		switch g.sel {
 		case 0:
 			g.smooth = !g.smooth
-		case 1:
-			g.dither = !g.dither
+		case 1: // slider: Left slower, Right / Enter faster (Enter wraps round to the slowest)
+			sp := Settings.Speed + 0.25
+			if KeyJustPressed(ebiten.KeyLeft) {
+				sp = math.Max(minSpeed, Settings.Speed-0.25)
+			} else if sp > maxSpeed {
+				sp = minSpeed
+				if KeyJustPressed(ebiten.KeyRight) {
+					sp = maxSpeed
+				}
+			}
+			Settings.Speed = sp
 		case 2:
-			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
+			Settings.SmoothMonsters = !Settings.SmoothMonsters
 		case 3:
+			g.dither = !g.dither
+		case 4:
+			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
+		case 5:
 			ebiten.SetFullscreen(!ebiten.IsFullscreen())
 		}
-		Settings = Options{Smooth: g.smooth, Dither: g.dither, Fullscreen: ebiten.IsFullscreen(), Torch: g.torch}
+		Settings.Smooth, Settings.Dither, Settings.Fullscreen, Settings.Torch = g.smooth, g.dither, ebiten.IsFullscreen(), g.torch
 		if OnSettings != nil {
 			OnSettings(Settings)
 		}
@@ -1191,7 +1208,10 @@ func (g *Game) updateMenu() bool {
 // menuItems are the Esc menu's lines, or its Options page's.
 func (g *Game) menuItems() []string {
 	if g.options {
-		return []string{"Smooth movement:   " + onOff(g.smooth), "Dithered darkness: " + onOff(g.dither),
+		bar := int(math.Round((Settings.Speed - minSpeed) / 0.25))
+		return []string{"Smooth movement:   " + onOff(g.smooth),
+			"Walk speed:        " + strings.Repeat("#", bar+1) + strings.Repeat("-", int((maxSpeed-minSpeed)/0.25)-bar) + fmt.Sprintf(" %.2fx", Settings.Speed),
+			"Smooth monsters:   " + onOff(Settings.SmoothMonsters), "Dithered darkness: " + onOff(g.dither),
 			fmt.Sprintf("Torch intensity:   %.1f", g.torch), "Fullscreen:        " + onOff(ebiten.IsFullscreen())}
 	}
 	return []string{"Options", "Teleport to level", "Quit game"}
@@ -1228,7 +1248,7 @@ func (g *Game) camera() cam {
 	}
 	c := cam{x: g.fx + (g.tx-g.fx)*e, z: g.fz + (g.tz-g.fz)*e, ang: g.fa + (g.ta-g.fa)*e}
 	if g.moving && g.smooth {
-		s := g.v / walkSpeed // a strafe leans with its speed: in as it starts, steady, out as it stops
+		s := g.v / (walkSpeed * Settings.Speed) // a strafe leans with its speed: in as it starts, steady, out as it stops
 		c.ang += 0.025 * s * g.sway
 		c.roll = 0.012 * s * g.sway
 	}
@@ -1815,14 +1835,17 @@ var (
 
 // Options are the settings on the Options page.
 type Options struct {
-	Smooth, Dither, Fullscreen bool
-	Torch                      float64
+	Smooth, Dither, Fullscreen, SmoothMonsters bool
+	Torch                                      float64
+	Speed                                      float64 // walk and turn speed, minSpeed to maxSpeed times the normal
 }
+
+const minSpeed, maxSpeed = 0.5, 2.0
 
 // Settings are the options Run starts with; set them before Run (from a settings file).
 // OnSettings is called with the new options whenever the player changes one.
 var (
-	Settings   = Options{Smooth: true, Dither: true, Torch: 1}
+	Settings   = Options{Smooth: true, Dither: true, SmoothMonsters: true, Torch: 1, Speed: 1}
 	OnSettings func(Options)
 )
 
