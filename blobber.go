@@ -917,7 +917,12 @@ type Game struct {
 	t, dur, sway           float64 // tween progress, duration, roll direction
 	moving                 bool
 	queued                 ebiten.Key
-	time                   float64
+	// a step (not a turn) moves at speed v (steps per second) instead of easing, and flows into the
+	// next one while walkKey is held, so walking doesn't slow down at every cell
+	walk    bool
+	v       float64
+	walkKey ebiten.Key
+	time    float64
 	// settings
 	dither, smooth, menu, atlasView, help bool
 	mapView                               bool
@@ -936,6 +941,7 @@ func (g *Game) startMove(nx, ny, ndir int, sway float64) {
 	if nx == g.x && ny == g.y {
 		g.dur = 0.22 // turn
 	}
+	g.walk = nx != g.x || ny != g.y
 	g.x, g.y, g.dir = nx, ny, ndir
 	g.tx, g.tz = float64(nx)+0.5, float64(ny)+0.5
 	g.ta = float64(ndir) * math.Pi / 2
@@ -966,6 +972,7 @@ func (g *Game) act(k ebiten.Key) {
 		case wall(nx, ny), Fighting(): // no stepping out of melee
 		default:
 			g.startMove(nx, ny, g.dir, sway)
+			g.walkKey = k
 			g.endTurn()
 		}
 	}
@@ -1088,7 +1095,14 @@ func (g *Game) Update() error {
 	return nil
 }
 
+// walking: top speed in steps per second, and acceleration / braking
+const walkSpeed, walkAccel = 5.0, 40.0
+
 func (g *Game) tween() {
+	if g.moving && g.walk {
+		g.walkStep()
+		return
+	}
 	if g.moving {
 		g.t += 1 / (60 * g.dur)
 		if g.t >= 1 {
@@ -1099,6 +1113,38 @@ func (g *Game) tween() {
 				g.act(k)
 			}
 		}
+	}
+}
+
+// walkStep advances a step by one frame: full speed while the walk key is held and the next cell is
+// free (and on into it), otherwise braking to stop exactly on the cell.
+func (g *Game) walkStep() {
+	const dt = 1.0 / 60
+	d := [2]int{int(math.Round(g.tx - g.fx)), int(math.Round(g.tz - g.fz))}
+	on := KeyPressed(g.walkKey) && prompt == nil && Modal == nil && !Fighting() && !wall(g.x+d[0], g.y+d[1])
+	if !on && g.v*g.v >= 2*walkAccel*(1-g.t) { // brake: v²/2a is the distance braking takes
+		g.v = math.Max(0.5, g.v-walkAccel*dt)
+	} else {
+		g.v = math.Min(walkSpeed, g.v+walkAccel*dt)
+	}
+	g.t += g.v * dt
+	if g.t < 1 {
+		return
+	}
+	g.moving = false
+	if on { // straight on, carrying the overshoot and speed into the next step
+		over, v := g.t-1, g.v
+		g.act(g.walkKey)
+		if g.moving {
+			g.t, g.v = over, v
+			return
+		}
+	}
+	g.t, g.v = 1, 0
+	if g.queued != 0 && prompt == nil {
+		k := g.queued
+		g.queued = 0
+		g.act(k)
 	}
 }
 
@@ -1161,6 +1207,9 @@ type cam struct{ x, z, ang, roll, fwx, fwz, rtx, rtz float64 }
 
 func (g *Game) camera() cam {
 	e := g.t * g.t * (3 - 2*g.t) // smoothstep
+	if g.walk {
+		e = g.t // walkStep eases by speed
+	}
 	c := cam{x: g.fx + (g.tx-g.fx)*e, z: g.fz + (g.tz-g.fz)*e, ang: g.fa + (g.ta-g.fa)*e}
 	if g.moving {
 		s := math.Sin(math.Pi * g.t)
