@@ -167,6 +167,10 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		// at grazing angles the ray would reach far along the wall and the texture would swim:
 		// cap the sideways shift at theirs, 20/256 of a wall
 		d := (uv - Eye.xy) / max(Eye.z, 0.001)
+		// seen head on, a parallax shift only bends the bricks; theirs extrude side walls and
+		// barely move front walls, so fade it in with the angle (sin^2 of it)
+		g := dot(d, d)
+		d *= g / (1 + g)
 		if l := length(d) * Bump; l > 20.0/256 {
 			d *= 20.0 / 256 / l
 		}
