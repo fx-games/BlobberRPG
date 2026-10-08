@@ -989,9 +989,7 @@ func (g *Game) Update() error {
 	updateEnts(g.time)
 	g.updateActors(1.0 / 60)
 	ctx := byte('x')
-	if g.menu && prompt == nil && Modal == nil && !g.help && !g.mapView {
-		ctx = 'm'
-	} else if prompt == nil && Modal == nil && !g.help && !g.mapView {
+	if !g.menu && prompt == nil && Modal == nil && !g.help && !g.mapView {
 		ctx = 'w'
 	}
 	pollPads(ctx)
@@ -1045,7 +1043,7 @@ func (g *Game) Update() error {
 			f()
 		}
 	}
-	if KeyJustPressed(ebiten.KeyEscape) || KeyJustPressed(ebiten.KeyEnter) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
+	if KeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
 		g.menu = !g.menu // Esc opens the menu (Quit is in it) and closes it again
 	}
 	if g.menu {
@@ -1112,7 +1110,7 @@ func (g *Game) updateMenu() bool {
 	if KeyRepeated(ebiten.KeyDown) {
 		g.sel = (g.sel + 1) % n
 	}
-	pick := KeyJustPressed(ebiten.KeySpace) || KeyJustPressed(ebiten.KeyRight)
+	pick := KeyJustPressed(ebiten.KeyEnter) || KeyJustPressed(ebiten.KeySpace) || KeyJustPressed(ebiten.KeyRight)
 	if g.sel == 5 && pick && OnTeleportMenu != nil {
 		g.menu = false
 		OnTeleportMenu()
@@ -1121,7 +1119,7 @@ func (g *Game) updateMenu() bool {
 	if g.sel == 6 && pick {
 		return true
 	}
-	if KeyJustPressed(ebiten.KeyLeft) || KeyJustPressed(ebiten.KeyRight) || KeyJustPressed(ebiten.KeySpace) {
+	if pick || KeyJustPressed(ebiten.KeyLeft) {
 		switch g.sel {
 		case 0:
 			g.dither = !g.dither
@@ -1599,11 +1597,11 @@ func onOff(b bool) string {
 func (g *Game) drawMenu(screen *ebiten.Image) {
 	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), fmt.Sprintf("Heightmap bump:    %.2f", bump), "Fullscreen:        " + onOff(ebiten.IsFullscreen()), "Teleport to level", "Quit game"}
 	if Window != nil {
-		Window(screen, "MENU", append(items, "", "up/down choose, Space change, Esc closes"), g.sel, false)
+		Window(screen, "MENU", append(items, "", "Enter changes, Esc closes"), g.sel, false)
 		return
 	}
 	ebitenutil.DrawRect(screen, float64(W/2-130), float64(H/2-60), 260, 152, color.RGBA{0, 0, 0, 200})
-	font.Print(screen, "SETTINGS  (up/down, left/right, Enter closes)", W/2-120, H/2-50)
+	font.Print(screen, "SETTINGS  (Enter changes, Esc closes)", W/2-120, H/2-50)
 	for i, s := range items {
 		cur := "  "
 		if i == g.sel {

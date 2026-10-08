@@ -6,7 +6,7 @@ package blobber
 //
 //	d-pad / left stick   arrows: walk and turn, move through menus
 //	LB / RB              A / D: strafe; Page Up / Down in windows: previous / next character
-//	A                    F (use) in the dungeon; Space in the menu; Enter, Space in windows
+//	A                    F (use) in the dungeon; Enter, Space in menus and windows
 //	B                    Esc
 //	X                    Space: wait a turn
 //	Y                    I: inventory
@@ -28,7 +28,7 @@ var (
 )
 
 // pollPads works out which keys the pads hold this frame; context is where input goes:
-// 'w' the dungeon, 'm' the game menu, anything else a window or prompt.
+// 'w' the dungeon, anything else a menu, window or prompt.
 func pollPads(context byte) {
 	padHeld, padJust = map[ebiten.Key]bool{}, map[ebiten.Key]bool{}
 	was := padWas
@@ -76,9 +76,6 @@ func pollPads(context byte) {
 			b(ebiten.StandardGamepadButtonFrontBottomLeft, ebiten.KeyC)
 			b(ebiten.StandardGamepadButtonFrontBottomRight, ebiten.KeyJ)
 			b(ebiten.StandardGamepadButtonCenterLeft, ebiten.KeyM)
-		case 'm':
-			b(ebiten.StandardGamepadButtonRightBottom, ebiten.KeySpace)
-			b(ebiten.StandardGamepadButtonRightRight, ebiten.KeyEscape)
 		default:
 			b(ebiten.StandardGamepadButtonRightBottom, ebiten.KeyEnter, ebiten.KeySpace)
 			b(ebiten.StandardGamepadButtonRightRight, ebiten.KeyEscape)
