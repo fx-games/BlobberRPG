@@ -5,7 +5,7 @@ package blobber
 // and KeyPressed instead of inpututil/ebiten directly.
 //
 //	d-pad / left stick   arrows: walk and turn, move through menus
-//	LB / RB              A / D: strafe
+//	LB / RB              A / D: strafe; Page Up / Down in windows: previous / next character
 //	A                    F (use) in the dungeon; Space in the menu; Enter, Space in windows
 //	B                    Esc
 //	X                    Space: wait a turn
@@ -60,6 +60,8 @@ func pollPads(context byte) {
 			hold(b(ebiten.StandardGamepadButtonRightBottom), ebiten.KeyEnter, ebiten.KeySpace)
 			hold(b(ebiten.StandardGamepadButtonRightRight), ebiten.KeyEscape)
 			hold(b(ebiten.StandardGamepadButtonCenterLeft), ebiten.KeyM) // closes the map
+			hold(b(ebiten.StandardGamepadButtonFrontTopLeft), ebiten.KeyPageUp)
+			hold(b(ebiten.StandardGamepadButtonFrontTopRight), ebiten.KeyPageDown)
 		}
 	}
 }

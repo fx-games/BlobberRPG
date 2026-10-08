@@ -75,10 +75,10 @@ func (b *Spellbook) Update() bool {
 	if p(ebiten.KeyEscape) || p(ebiten.KeyC) {
 		return false
 	}
-	if p(ebiten.KeyTab) || p(ebiten.KeyRight) {
+	if p(ebiten.KeyTab) || p(ebiten.KeyRight) || p(ebiten.KeyPageDown) {
 		b.char, b.sel = (b.char+1)%len(b.P.Chars), 0
 	}
-	if p(ebiten.KeyLeft) {
+	if p(ebiten.KeyLeft) || p(ebiten.KeyPageUp) {
 		b.char, b.sel = (b.char+len(b.P.Chars)-1)%len(b.P.Chars), 0
 	}
 	if n := len(b.known(b.P.Chars[b.char])); n > 0 { // up/down pick, Enter casts

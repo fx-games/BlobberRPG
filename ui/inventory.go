@@ -222,8 +222,10 @@ func (v *Inventory) Update() bool {
 	case pressed(ebiten.KeyRight):
 		v.inSlots = true
 		v.slot = max(v.slot, 0)
-	case pressed(ebiten.KeyTab):
+	case pressed(ebiten.KeyTab) || pressed(ebiten.KeyPageDown): // next character (RB)
 		v.char = (v.char + 1) % len(v.P.Chars)
+	case pressed(ebiten.KeyPageUp): // previous character (LB)
+		v.char = (v.char + len(v.P.Chars) - 1) % len(v.P.Chars)
 	case pressed(ebiten.KeyEnter) || pressed(ebiten.KeySpace):
 		if v.inSlots {
 			v.inSlots = false // on to the list to choose what goes there
