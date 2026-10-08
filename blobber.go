@@ -922,6 +922,7 @@ type Game struct {
 	walk    bool
 	v       float64
 	walkKey ebiten.Key
+	cool    float64 // without smooth movement: seconds until a held key moves again
 	time    float64
 	// settings
 	dither, smooth, menu, options, atlasView, help bool
@@ -1065,7 +1066,7 @@ func (g *Game) Update() error {
 			OnUse(g.x, g.y, g.dir)
 		}
 		for _, k := range []ebiten.Key{ebiten.KeyW, ebiten.KeyS, ebiten.KeyA, ebiten.KeyD, ebiten.KeyQ, ebiten.KeyE, ebiten.KeyUp, ebiten.KeyDown, ebiten.KeyLeft, ebiten.KeyRight} {
-			if KeyJustPressed(k) || (!g.moving && KeyPressed(k)) { // held key = continuous
+			if KeyJustPressed(k) || (!g.moving && g.cool <= 0 && KeyPressed(k)) { // held key = continuous
 				g.act(k)
 			}
 		}
@@ -1095,17 +1096,24 @@ func (g *Game) Update() error {
 }
 
 // walking and turning: top speeds in steps / quarter turns per second, and acceleration / braking
-const walkSpeed, turnSpeed, walkAccel = 5.0, 3.5, 40.0
+const walkSpeed, turnSpeed, walkAccel = 5.0, 3.5, 70.0
+
+// snapRepeat is how often a held key moves without smooth movement, in seconds.
+const snapRepeat = 0.15
 
 // tween advances a step or turn by one frame: full speed while its key is held (and, for a step, the
 // next cell is free), flowing on into the next one; otherwise braking to stop exactly on the cell or
-// facing. Without smooth movement the camera snaps (camera), but the timing stays: a held key still
-// repeats at walking pace.
+// facing. Without smooth movement a move is done at once.
 func (g *Game) tween() {
+	const dt = 1.0 / 60
+	g.cool -= dt
 	if !g.moving {
 		return
 	}
-	const dt = 1.0 / 60
+	if !g.smooth { // snap: done at once; a held key repeats after a pause
+		g.t, g.v, g.moving, g.cool = 1, 0, false, snapRepeat
+		return
+	}
 	top := turnSpeed
 	if g.walk {
 		top = walkSpeed
