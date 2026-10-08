@@ -1195,8 +1195,10 @@ func (g *Game) updateMenu() bool {
 		case 4:
 			Settings.NormalMaps = !Settings.NormalMaps
 		case 5:
-			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
+			Settings.LightMaps = !Settings.LightMaps
 		case 6:
+			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
+		case 7:
 			ebiten.SetFullscreen(!ebiten.IsFullscreen())
 		}
 		Settings.Smooth, Settings.Dither, Settings.Fullscreen, Settings.Torch = g.smooth, g.dither, ebiten.IsFullscreen(), g.torch
@@ -1214,6 +1216,7 @@ func (g *Game) menuItems() []string {
 		return []string{"Smooth movement:   " + onOff(g.smooth),
 			"Walk speed:        " + strings.Repeat("#", bar+1) + strings.Repeat("-", int((maxSpeed-minSpeed)/0.25)-bar) + fmt.Sprintf(" %.2fx", Settings.Speed),
 			"Smooth monsters:   " + onOff(Settings.SmoothMonsters), "Dithered darkness: " + onOff(g.dither), "Normal mapping:    " + onOff(Settings.NormalMaps),
+			"Light maps:        " + onOff(Settings.LightMaps),
 			fmt.Sprintf("Torch intensity:   %.1f", g.torch), "Fullscreen:        " + onOff(ebiten.IsFullscreen())}
 	}
 	return []string{"Options", "Teleport to level", "Quit game"}
@@ -1478,7 +1481,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			if math.Abs(s.nx*c.rtx+s.nz*c.rtz) > 0.5 { // a side wall: theirs fade 30% toward the fog
 				f.inc = 0.3
 			}
-			if m.lightPow > 0 { // a flickering glow in front of a light-mapped face
+			if m.lightPow > 0 && Settings.LightMaps { // a flickering glow in front of a light-mapped face
 				d := dirs[i]
 				k := 0.5 + 0.1*m.lightPow
 				wx, wz := float64(cx+d[0])+0.5, float64(cy+d[1])+0.5
@@ -1837,9 +1840,9 @@ var (
 
 // Options are the settings on the Options page.
 type Options struct {
-	Smooth, Dither, Fullscreen, SmoothMonsters, NormalMaps bool
-	Torch                                                  float64
-	Speed                                                  float64 // walk and turn speed, minSpeed to maxSpeed times the normal
+	Smooth, Dither, Fullscreen, SmoothMonsters, NormalMaps, LightMaps bool
+	Torch                                                             float64
+	Speed                                                             float64 // walk and turn speed, minSpeed to maxSpeed times the normal
 }
 
 const minSpeed, maxSpeed = 0.5, 2.0
@@ -1847,7 +1850,7 @@ const minSpeed, maxSpeed = 0.5, 2.0
 // Settings are the options Run starts with; set them before Run (from a settings file).
 // OnSettings is called with the new options whenever the player changes one.
 var (
-	Settings   = Options{Smooth: true, Dither: true, SmoothMonsters: true, NormalMaps: true, Torch: 1, Speed: 1}
+	Settings   = Options{Smooth: true, Dither: true, SmoothMonsters: true, NormalMaps: true, LightMaps: true, Torch: 1, Speed: 1}
 	OnSettings func(Options)
 )
 

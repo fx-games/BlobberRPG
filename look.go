@@ -132,6 +132,7 @@ var Mode float
 var Mul float     // darkness strength
 var Inc float     // constant extra fade toward the fog: 0.3 sides, 0.4 floors, 0 fronts
 var HasLit float  // 1 when image 2 is a light map
+var Dither float  // 1: checker dither and hard darkness bands; 0: smooth darkness
 var Center vec2   // screen centre
 var Focal float
 var Px float      // screen pixels per view pixel of theirs (500 wide), for the checker dither
@@ -154,6 +155,9 @@ func darkness(d, mul float) float {
 	}
 	if r >= 0.2 {
 		r += 0.04
+	}
+	if Dither == 0 {
+		return clamp(r*r*mul, 0, 1)
 	}
 	return clamp(floor(r*r*7)/7*mul, 0, 1)
 }
@@ -194,7 +198,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 	x := (dstPos.x - Center.x) / Focal * z
 	h := 0.5 - custom.w*z // height above the floor
 	q := floor(dstPos.xy / Px)
-	chk := mod(q.x+q.y, 2)
+	chk := mod(q.x+q.y, 2) * Dither
 	dist := length(vec2(x*1.5, z*0.7)) + (h+chk*0.15)*1.8
 	lit := 0.0
 	if HasLit > 0 {
@@ -271,13 +275,20 @@ func lamp(c cam, f *face) []float32 {
 	return out
 }
 
+func btof(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // faceOptions sets the texture shader's images and uniforms for face f seen from c.
 func (g *Game) faceOptions(c cam, f *face) *ebiten.DrawTrianglesShaderOptions {
 	op := &ebiten.DrawTrianglesShaderOptions{}
 	op.Images[0], op.Images[1], op.Images[2] = f.tex, f.tex, f.tex
-	u := map[string]any{"Mode": float32(f.mode), "Mul": float32(g.darkMul()), "Inc": float32(f.inc),
+	u := map[string]any{"Mode": float32(f.mode), "Dither": float32(btof(g.dither)), "Mul": float32(g.darkMul()), "Inc": float32(f.inc),
 		"Center": []float32{float32(W) / 2, float32(H) / 2}, "Focal": float32(focal), "Px": float32(math.Max(1, float64(W)/500))}
-	if m := f.m; m != nil && m.lit != nil {
+	if m := f.m; m != nil && m.lit != nil && Settings.LightMaps {
 		op.Images[2], u["HasLit"] = m.lit, float32(1)
 	}
 	if s := slopes[f.tex]; s != nil && f.mode == modeShaded && Settings.NormalMaps {
