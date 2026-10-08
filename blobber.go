@@ -1216,7 +1216,7 @@ func (g *Game) camera() cam {
 	}
 	c := cam{x: g.fx + (g.tx-g.fx)*e, z: g.fz + (g.tz-g.fz)*e, ang: g.fa + (g.ta-g.fa)*e}
 	if g.moving && g.smooth {
-		s := math.Sin(math.Pi * g.t)
+		s := g.v / walkSpeed // a strafe leans with its speed: in as it starts, steady, out as it stops
 		c.ang += 0.025 * s * g.sway
 		c.roll = 0.012 * s * g.sway
 	}
