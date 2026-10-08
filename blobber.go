@@ -914,7 +914,7 @@ type Game struct {
 	x, y, dir int
 	// smooth movement tween
 	fx, fz, fa, tx, tz, ta float64 // from/to pos & angle
-	t, dur, sway           float64 // tween progress, duration, roll direction
+	t, sway                float64 // tween progress, roll direction
 	moving                 bool
 	queued                 ebiten.Key
 	// a step (not a turn) moves at speed v (steps per second) instead of easing, and flows into the
@@ -924,23 +924,19 @@ type Game struct {
 	walkKey ebiten.Key
 	time    float64
 	// settings
-	dither, smooth, menu, atlasView, help bool
-	mapView                               bool
-	debug                                 bool
-	torch                                 float64
-	sel                                   int
-	scene                                 *ebiten.Image
-	shader, texShader                     *ebiten.Shader
+	dither, smooth, menu, options, atlasView, help bool
+	mapView                                        bool
+	debug                                          bool
+	torch                                          float64
+	sel                                            int
+	scene                                          *ebiten.Image
+	shader, texShader                              *ebiten.Shader
 }
 
 var dirs = [4][2]int{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
 
 func (g *Game) startMove(nx, ny, ndir int, sway float64) {
 	g.fx, g.fz, g.fa = g.tx, g.tz, g.ta
-	g.dur = 0.28
-	if nx == g.x && ny == g.y {
-		g.dur = 0.22 // turn
-	}
 	g.walk = nx != g.x || ny != g.y
 	g.x, g.y, g.dir = nx, ny, ndir
 	g.tx, g.tz = float64(nx)+0.5, float64(ny)+0.5
@@ -952,9 +948,6 @@ func (g *Game) startMove(nx, ny, ndir int, sway float64) {
 		g.ta += 2 * math.Pi
 	}
 	g.t, g.moving, g.sway = 0, true, sway
-	if !g.smooth {
-		g.t = 1
-	}
 	if OnMove != nil {
 		OnMove(nx, ny, ndir)
 	}
@@ -987,8 +980,10 @@ func (g *Game) act(k ebiten.Key) {
 		step(r[0], r[1], 1)
 	case ebiten.KeyQ, ebiten.KeyLeft:
 		g.startMove(g.x, g.y, (g.dir+3)%4, 0)
+		g.walkKey = k
 	case ebiten.KeyE, ebiten.KeyRight:
 		g.startMove(g.x, g.y, (g.dir+1)%4, 0)
+		g.walkKey = k
 	}
 }
 
@@ -1052,7 +1047,11 @@ func (g *Game) Update() error {
 		}
 	}
 	if KeyJustPressed(ebiten.KeyEscape) || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) {
-		g.menu = !g.menu // Esc opens the menu (Quit is in it) and closes it again
+		if g.options { // Esc in Options goes back to the menu
+			g.options, g.sel = false, 0
+		} else {
+			g.menu, g.sel = !g.menu, 0 // Esc opens the menu (Quit is in it) and closes it again
+		}
 	}
 	if g.menu {
 		if g.updateMenu() {
@@ -1095,37 +1094,28 @@ func (g *Game) Update() error {
 	return nil
 }
 
-// walking: top speed in steps per second, and acceleration / braking
-const walkSpeed, walkAccel = 5.0, 40.0
+// walking and turning: top speeds in steps / quarter turns per second, and acceleration / braking
+const walkSpeed, turnSpeed, walkAccel = 5.0, 3.5, 40.0
 
+// tween advances a step or turn by one frame: full speed while its key is held (and, for a step, the
+// next cell is free), flowing on into the next one; otherwise braking to stop exactly on the cell or
+// facing. Without smooth movement the camera snaps (camera), but the timing stays: a held key still
+// repeats at walking pace.
 func (g *Game) tween() {
-	if g.moving && g.walk {
-		g.walkStep()
+	if !g.moving {
 		return
 	}
-	if g.moving {
-		g.t += 1 / (60 * g.dur)
-		if g.t >= 1 {
-			g.t, g.moving = 1, false
-			if g.queued != 0 && prompt == nil {
-				k := g.queued
-				g.queued = 0
-				g.act(k)
-			}
-		}
-	}
-}
-
-// walkStep advances a step by one frame: full speed while the walk key is held and the next cell is
-// free (and on into it), otherwise braking to stop exactly on the cell.
-func (g *Game) walkStep() {
 	const dt = 1.0 / 60
+	top := turnSpeed
+	if g.walk {
+		top = walkSpeed
+	}
 	d := [2]int{int(math.Round(g.tx - g.fx)), int(math.Round(g.tz - g.fz))}
-	on := KeyPressed(g.walkKey) && prompt == nil && Modal == nil && !Fighting() && !wall(g.x+d[0], g.y+d[1])
+	on := KeyPressed(g.walkKey) && prompt == nil && Modal == nil && (!g.walk || !Fighting() && !wall(g.x+d[0], g.y+d[1]))
 	if !on && g.v*g.v >= 2*walkAccel*(1-g.t) { // brake: v²/2a is the distance braking takes
 		g.v = math.Max(0.5, g.v-walkAccel*dt)
 	} else {
-		g.v = math.Min(walkSpeed, g.v+walkAccel*dt)
+		g.v = math.Min(top, g.v+walkAccel*dt)
 	}
 	g.t += g.v * dt
 	if g.t < 1 {
@@ -1150,28 +1140,33 @@ func (g *Game) walkStep() {
 
 // updateMenu reports true when Quit was chosen.
 func (g *Game) updateMenu() bool {
-	n := 6
+	n := len(g.menuItems())
 	if KeyRepeated(ebiten.KeyUp) {
 		g.sel = (g.sel + n - 1) % n
 	}
 	if KeyRepeated(ebiten.KeyDown) {
 		g.sel = (g.sel + 1) % n
 	}
-	pick := KeyJustPressed(ebiten.KeyEnter) || KeyJustPressed(ebiten.KeySpace) || KeyJustPressed(ebiten.KeyRight)
-	if g.sel == 4 && pick && OnTeleportMenu != nil {
-		g.menu = false
-		OnTeleportMenu()
+	pick := KeyJustPressed(ebiten.KeyEnter) || KeyJustPressed(ebiten.KeySpace)
+	if !g.options {
+		switch {
+		case !pick:
+		case g.sel == 0:
+			g.options, g.sel = true, 0
+		case g.sel == 1 && OnTeleportMenu != nil:
+			g.menu = false
+			OnTeleportMenu()
+		case g.sel == 2:
+			return true
+		}
 		return false
 	}
-	if g.sel == 5 && pick {
-		return true
-	}
-	if pick || KeyJustPressed(ebiten.KeyLeft) {
+	if pick || KeyJustPressed(ebiten.KeyLeft) || KeyJustPressed(ebiten.KeyRight) {
 		switch g.sel {
 		case 0:
-			g.dither = !g.dither
-		case 1:
 			g.smooth = !g.smooth
+		case 1:
+			g.dither = !g.dither
 		case 2:
 			g.torch = math.Mod(g.torch, 1.5) + 0.5 // 0.5 → 1 → 1.5 → 0.5
 		case 3:
@@ -1179,6 +1174,15 @@ func (g *Game) updateMenu() bool {
 		}
 	}
 	return false
+}
+
+// menuItems are the Esc menu's lines, or its Options page's.
+func (g *Game) menuItems() []string {
+	if g.options {
+		return []string{"Smooth movement:   " + onOff(g.smooth), "Dithered darkness: " + onOff(g.dither),
+			fmt.Sprintf("Torch intensity:   %.1f", g.torch), "Fullscreen:        " + onOff(ebiten.IsFullscreen())}
+	}
+	return []string{"Options", "Teleport to level", "Quit game"}
 }
 
 // ---------- rendering ----------
@@ -1206,12 +1210,12 @@ func lerp(a, b vert, t float64) vert {
 type cam struct{ x, z, ang, roll, fwx, fwz, rtx, rtz float64 }
 
 func (g *Game) camera() cam {
-	e := g.t * g.t * (3 - 2*g.t) // smoothstep
-	if g.walk {
-		e = g.t // walkStep eases by speed
+	e := g.t // tween eases by speed
+	if !g.smooth {
+		e = 1
 	}
 	c := cam{x: g.fx + (g.tx-g.fx)*e, z: g.fz + (g.tz-g.fz)*e, ang: g.fa + (g.ta-g.fa)*e}
-	if g.moving {
+	if g.moving && g.smooth {
 		s := math.Sin(math.Pi * g.t)
 		c.ang += 0.025 * s * g.sway
 		c.roll = 0.012 * s * g.sway
@@ -1638,13 +1642,16 @@ func onOff(b bool) string {
 }
 
 func (g *Game) drawMenu(screen *ebiten.Image) {
-	items := []string{"Dithered darkness: " + onOff(g.dither), "Smooth movement:   " + onOff(g.smooth), fmt.Sprintf("Torch intensity:   %.1f", g.torch), "Fullscreen:        " + onOff(ebiten.IsFullscreen()), "Teleport to level", "Quit game"}
+	items, title, hint := g.menuItems(), "MENU", "Enter picks, Esc closes"
+	if g.options {
+		title, hint = "OPTIONS", "Enter changes, Esc goes back"
+	}
 	if Window != nil {
-		Window(screen, "MENU", append(items, "", "Enter changes, Esc closes"), g.sel, false)
+		Window(screen, title, append(items, "", hint), g.sel, false)
 		return
 	}
 	ebitenutil.DrawRect(screen, float64(W/2-130), float64(H/2-60), 260, 152, color.RGBA{0, 0, 0, 200})
-	font.Print(screen, "SETTINGS  (Enter changes, Esc closes)", W/2-120, H/2-50)
+	font.Print(screen, title+"  ("+hint+")", W/2-120, H/2-50)
 	for i, s := range items {
 		cur := "  "
 		if i == g.sel {
