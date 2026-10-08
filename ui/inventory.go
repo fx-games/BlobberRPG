@@ -213,9 +213,9 @@ func (v *Inventory) Update() bool {
 	}
 	step := 0
 	switch {
-	case pressed(ebiten.KeyUp):
+	case blobber.KeyRepeated(ebiten.KeyUp):
 		step = -1
-	case pressed(ebiten.KeyDown):
+	case blobber.KeyRepeated(ebiten.KeyDown):
 		step = 1
 	case pressed(ebiten.KeyLeft):
 		v.inSlots = false

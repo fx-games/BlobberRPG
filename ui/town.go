@@ -336,9 +336,9 @@ func (s *Shop) Update() bool {
 	}
 	n := len(s.Offers())
 	switch {
-	case p(ebiten.KeyUp):
+	case blobber.KeyRepeated(ebiten.KeyUp):
 		s.sel--
-	case p(ebiten.KeyDown):
+	case blobber.KeyRepeated(ebiten.KeyDown):
 		s.sel++
 	case p(ebiten.KeyEnter) || p(ebiten.KeySpace):
 		s.Choose(s.sel)

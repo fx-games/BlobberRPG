@@ -82,10 +82,10 @@ func (b *Spellbook) Update() bool {
 		b.char, b.sel = (b.char+len(b.P.Chars)-1)%len(b.P.Chars), 0
 	}
 	if n := len(b.known(b.P.Chars[b.char])); n > 0 { // up/down pick, Enter casts
-		if p(ebiten.KeyUp) {
+		if blobber.KeyRepeated(ebiten.KeyUp) {
 			b.sel = (b.sel + n - 1) % n
 		}
-		if p(ebiten.KeyDown) {
+		if blobber.KeyRepeated(ebiten.KeyDown) {
 			b.sel = (b.sel + 1) % n
 		}
 		if p(ebiten.KeyEnter) || p(ebiten.KeySpace) {

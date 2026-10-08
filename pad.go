@@ -24,6 +24,7 @@ import (
 var (
 	padHeld, padJust = map[ebiten.Key]bool{}, map[ebiten.Key]bool{}
 	padWas           = map[[2]int]bool{} // gamepad id, button (or stick direction 100+) held last frame
+	padDur           = map[ebiten.Key]int{} // frames each pad key has been held
 )
 
 // pollPads works out which keys the pads hold this frame; context is where input goes:
@@ -86,11 +87,25 @@ func pollPads(context byte) {
 			b(ebiten.StandardGamepadButtonFrontTopRight, ebiten.KeyPageDown)
 		}
 	}
+	for k := range padDur {
+		if !padHeld[k] {
+			delete(padDur, k)
+		}
+	}
+	for k := range padHeld {
+		padDur[k]++
+	}
 }
 
 // KeyJustPressed reports a key pressed this frame on the keyboard or a gamepad.
 func KeyJustPressed(k ebiten.Key) bool {
 	return inpututil.IsKeyJustPressed(k) || padJust[k]
+}
+
+// KeyRepeated is KeyJustPressed with auto-repeat while held, for moving through lists.
+func KeyRepeated(k ebiten.Key) bool {
+	rep := func(d int) bool { return d > 20 && d%4 == 0 }
+	return KeyJustPressed(k) || rep(inpututil.KeyPressDuration(k)) || rep(padDur[k])
 }
 
 // KeyPressed reports a key held on the keyboard or a gamepad.

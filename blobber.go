@@ -152,10 +152,10 @@ func (p *Prompt) update() {
 		}
 		return
 	}
-	if KeyJustPressed(ebiten.KeyUp) {
+	if KeyRepeated(ebiten.KeyUp) {
 		p.sel = (p.sel + len(opts) - 1) % len(opts)
 	}
-	if KeyJustPressed(ebiten.KeyDown) {
+	if KeyRepeated(ebiten.KeyDown) {
 		p.sel = (p.sel + 1) % len(opts)
 	}
 	if KeyJustPressed(ebiten.KeyEnter) || KeyJustPressed(ebiten.KeySpace) {
@@ -1107,10 +1107,10 @@ func (g *Game) tween() {
 // updateMenu reports true when Quit was chosen.
 func (g *Game) updateMenu() bool {
 	n := 7
-	if KeyJustPressed(ebiten.KeyUp) {
+	if KeyRepeated(ebiten.KeyUp) {
 		g.sel = (g.sel + n - 1) % n
 	}
-	if KeyJustPressed(ebiten.KeyDown) {
+	if KeyRepeated(ebiten.KeyDown) {
 		g.sel = (g.sel + 1) % n
 	}
 	pick := KeyJustPressed(ebiten.KeySpace) || KeyJustPressed(ebiten.KeyRight)
