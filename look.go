@@ -6,6 +6,7 @@ package blobber
 // floor and ceiling.
 
 import (
+	"image"
 	"image/color"
 	"math"
 
@@ -27,6 +28,27 @@ func addSlopes(img *ebiten.Image, w, h int, height func(x, y int) float64) {
 			i := 4 * (y*w + x)
 			pix[i] = u8(128 + 127*(at(x+1, y)-at(x-1, y)))
 			pix[i+1] = u8(128 + 127*(at(x, y+1)-at(x, y-1)))
+			pix[i+3] = 255
+		}
+	}
+	s := ebiten.NewImage(w, h)
+	s.WritePixels(pix)
+	slopes[img] = s
+}
+
+// normalSlopes makes img's slope map from normal map nm: a normal (x, y up, z) leans the height by
+// -x/z along u and y/z along v (v runs down), halved to the scale addSlopes' height differences have.
+func normalSlopes(img *ebiten.Image, nm image.Image) {
+	b := nm.Bounds()
+	w, h := b.Dx(), b.Dy()
+	pix := make([]byte, 4*w*h)
+	for y := range h {
+		for x := range w {
+			r, g, bl, _ := nm.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			nx, ny, nz := float64(r)/32767.5-1, float64(g)/32767.5-1, math.Max(float64(bl)/32767.5-1, 0.2)
+			i := 4 * (y*w + x)
+			pix[i] = u8(128 + 127*math.Max(-1, math.Min(1, -nx/nz*0.5)))
+			pix[i+1] = u8(128 + 127*math.Max(-1, math.Min(1, ny/nz*0.5)))
 			pix[i+3] = 255
 		}
 	}

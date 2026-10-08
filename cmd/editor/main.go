@@ -35,7 +35,7 @@ const (
 	cell   = 24
 	panelX = 760
 	winW   = 1200
-	winH   = 760
+	winH   = 832
 )
 
 var facings = []string{"n", "e", "s", "w", "any"}
@@ -363,14 +363,15 @@ func (e *editor) tileEvents() []*event {
 
 // panel layout (y offsets)
 const (
-	palY    = 10 // wall materials, 32px swatches 36px apart
-	flatY   = 60 // floor and ceiling swatches
-	monY    = 120
-	monRow  = 12 // thumbnails per row, 36px apart, two rows
-	evY     = 210
-	scriptY = 260
-	scriptH = 260
-	tmplY   = scriptY + scriptH + 20
+	palY     = 10 // wall materials, 32px swatches 36px apart
+	flatY    = 60 // floor and ceiling swatches, monRow per row, flatRows rows
+	flatRows = 3
+	monY     = flatY + flatRows*36 + 24
+	monRow   = 12 // thumbnails per row, 36px apart, two rows
+	evY      = monY + 90
+	scriptY  = evY + 50
+	scriptH  = 260
+	tmplY    = scriptY + scriptH + 20
 )
 
 func (e *editor) click(mx, my int) {
@@ -385,8 +386,8 @@ func (e *editor) click(mx, my int) {
 		}
 		return
 	}
-	if my >= flatY && my < flatY+32 {
-		if i := px / 36; i < len(e.flatList) {
+	if my >= flatY && my < flatY+flatRows*36 {
+		if i := (my-flatY)/36*monRow + px/36; px/36 < monRow && i < len(e.flatList) {
 			e.setFlat(e.flatList[i][0], e.flatList[i][1])
 		}
 		return
@@ -539,12 +540,12 @@ func (e *editor) Draw(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, string(ch), int(x)+12, palY+32)
 	}
 	for i, fl := range e.flatList { // floor swatches, then ceiling swatches; the map's own are outlined
-		x := px + float32(i*36)
-		drawSwatch(screen, blobber.FlatTexture(fl[0], fl[1]), x, flatY)
+		x, y := px+float32(i%monRow*36), float32(flatY+i/monRow*36)
+		drawSwatch(screen, blobber.FlatTexture(fl[0], fl[1]), x, y)
 		if e.flat(fl[0]) == fl[1] {
-			vector.StrokeRect(screen, x-1, flatY-1, 34, 34, 2, color.RGBA{255, 255, 255, 255}, false)
+			vector.StrokeRect(screen, x-1, y-1, 34, 34, 2, color.RGBA{255, 255, 255, 255}, false)
 		}
-		ebitenutil.DebugPrintAt(screen, strings.ToUpper(fl[0][:1]), int(x)+12, flatY+32)
+		ebitenutil.DebugPrintAt(screen, strings.ToUpper(fl[0][:1]), int(x)+1, int(y)+18)
 	}
 	for i, n := range e.monList {
 		x, y := px+float32(i%monRow*36), float32(monY+i/monRow*36)
@@ -560,7 +561,7 @@ func (e *editor) Draw(screen *ebiten.Image) {
 	if e.mon != "" {
 		ebitenutil.DebugPrintAt(screen, "monster brush: "+e.mon+" (click a tile to place, again to remove)", panelX, monY+72)
 	}
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s  %dx%d   Ctrl+S save   Shift+Arrows grow, Ctrl+Shift+Arrows shrink", e.name, len(e.grid[0]), len(e.grid)), panelX, flatY+46)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("map %s  %dx%d   Ctrl+S save   Shift+Arrows grow, Ctrl+Shift+Arrows shrink", e.name, len(e.grid[0]), len(e.grid)), panelX, monY-20)
 
 	here := e.tileEvents()
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("tile %d,%d: %d event(s)   N new  F facing  U use  Tab next  Del remove", e.selX, e.selY, len(here)), panelX, evY)

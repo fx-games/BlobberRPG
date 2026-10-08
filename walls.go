@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"embed"
+	"image"
 	"image/png"
 	"sort"
 	"strings"
@@ -14,9 +15,9 @@ import (
 //go:embed assets/walls/*.png assets/walls/walls.txt
 var wallFS embed.FS
 
-// wallTexture loads assets/walls/<name>.png, or nil when there is none; a painted texture
-// replaces the generated one for its material character.
-func wallTexture(name string) *ebiten.Image {
+var wallCache = map[string]*ebiten.Image{}
+
+func decodeWall(name string) image.Image {
 	b, err := wallFS.ReadFile("assets/walls/" + name + ".png")
 	if err != nil {
 		return nil
@@ -25,8 +26,26 @@ func wallTexture(name string) *ebiten.Image {
 	if err != nil {
 		return nil
 	}
+	return img
+}
+
+// wallTexture loads assets/walls/<name>.png (once), or nil when there is none; a painted texture
+// replaces the generated one for its material character. Its relief comes from NAME_normal.png
+// when there is one (OpenGL convention, green up), else from its brightness.
+func wallTexture(name string) *ebiten.Image {
+	if t, ok := wallCache[name]; ok {
+		return t
+	}
+	img := decodeWall(name)
+	if img == nil {
+		wallCache[name] = nil
+		return nil
+	}
 	t := ebiten.NewImageFromImage(img)
-	if !strings.HasSuffix(name, "_light") { // painted: the brightness stands in for the height
+	wallCache[name] = t
+	if nm := decodeWall(name + "_normal"); nm != nil && nm.Bounds().Size() == img.Bounds().Size() {
+		normalSlopes(t, nm)
+	} else if !strings.HasSuffix(name, "_light") { // painted: the brightness stands in for the height
 		b := img.Bounds()
 		addSlopes(t, b.Dx(), b.Dy(), func(x, y int) float64 {
 			r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
@@ -59,7 +78,7 @@ func Flats(kind string) []string {
 	var out []string
 	entries, _ := wallFS.ReadDir("assets/walls")
 	for _, e := range entries {
-		if n, ok := strings.CutPrefix(e.Name(), kind+"_"); ok {
+		if n, ok := strings.CutPrefix(e.Name(), kind+"_"); ok && !strings.HasSuffix(n, "_normal.png") {
 			out = append(out, strings.TrimSuffix(n, ".png"))
 		}
 	}
