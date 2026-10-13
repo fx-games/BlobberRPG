@@ -123,11 +123,8 @@ func (g *Game) darkMul() float64 {
 	return 1 / (g.torch + math.Min(1.5, lightLeft)*0.5)
 }
 
-// torchPos is the torch in camera space (x right, y down, z ahead): held in the right hand, swaying a little.
-func (g *Game) torchPos() [3]float64 {
-	t := g.time
-	return [3]float64{0.22 + 0.015*math.Sin(t*1.7), -0.05 + 0.01*math.Sin(t*2.3+1), 0.05}
-}
+// torchPos is the torch in camera space: exactly at the eye.
+func (g *Game) torchPos() [3]float64 { return [3]float64{} }
 
 // flicker is the torch's brightness factor: a few incommensurate sines, so it never visibly repeats.
 func (g *Game) flicker() float64 {
@@ -190,13 +187,13 @@ var Lamp vec3     // the moving light reaching this face most, in camera space
 
 func tex(uv vec2) vec4 { return imageSrc0At(imageSrc0Origin() + fract(uv)*imageSrc0Size()) }
 
-// torch is the light reaching camera-space point p with normal n: inverse-square falloff, Lambert
-// (with some ambient so faces edge-on to the torch are not black), in 7 hard bands with Dither.
-func torch(p, n vec3, chk float) float {
+// torch is the light reaching camera-space point p: inverse-square falloff by distance only, so the
+// floor, ceiling and walls at one distance get the same light (no angle term: with the torch at the eye
+// it would leave floor and ceiling always darker). In 7 hard bands with Dither.
+func torch(p vec3, chk float) float {
 	lv := Torch - p
 	d := length(lv)
 	l := Pow / (1 + d*d/(Range*Range))
-	l *= 0.3 + 0.7*max(dot(n, lv/d), 0)
 	if Dither == 0 {
 		return clamp(l, 0, 1)
 	}
@@ -236,7 +233,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		return c
 	}
 	rgb := c.rgb / c.a
-	x := (dstPos.x - Center.x) / Focal * z
+	x := (dstPos.x - imageDstOrigin().x - Center.x) / Focal * z // dstPos counts from the atlas, not our image
 	p := vec3(x, custom.w*z, z)
 	q := floor(dstPos.xy / Px)
 	chk := mod(q.x+q.y, 2) * Dither
@@ -255,7 +252,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4, custom vec4) vec4 {
 		r := mix(relief(s, normalize(Torch-p)), relief(s, normalize(Lamp-p)), near)
 		rgb *= clamp(1+Bump*r, 0.4, 1.6)
 	}
-	dark := (1 - torch(p, N, chk)) * (1 - 0.7*lit) * (1 - near)
+	dark := (1 - torch(p, chk)) * (1 - 0.7*lit) * (1 - near)
 	out := shade(rgb*mix(Warm, vec3(1), max(lit, near)), dark, Inc*(1-lit)*(1-near)) + rgb*color.rgb*0.3
 	return vec4(out*c.a, c.a)
 }

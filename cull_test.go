@@ -153,3 +153,16 @@ func TestMeleeAndFlee(t *testing.T) {
 		t.Fatalf("fled to %d,%d, want the alcove 3,2", x, y)
 	}
 }
+
+func TestCellHoldsThree(t *testing.T) {
+	defer SwapPopulation(SwapPopulation(nil))
+	SetMap([]string{"#######", "#.....#", "#######"}, 1, 1)
+	defer SetMap(testLevel, 1, 1)
+	for range 4 { // a queue east of the party, all on one cell next to it
+		SpawnActor("rat", image.NewRGBA(image.Rect(0, 0, 1, 1)), 2, 1, 10)
+	}
+	game.monstersTurn()
+	if n := len(Melee()); n != MaxPerCell || crowdAt(2, 1) != 1 {
+		t.Fatalf("party cell has %d, want %d; one left behind, got %d", n, MaxPerCell, crowdAt(2, 1))
+	}
+}

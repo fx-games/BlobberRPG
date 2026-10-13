@@ -291,3 +291,26 @@ func TestTown(t *testing.T) {
 		t.Fatalf("stairs: %s %d,%d", h.m, x, y)
 	}
 }
+
+func TestAutoFight(t *testing.T) {
+	h := newTestHost(t, "demo", 2, 1)
+	h.installCombat()
+	defer func() { blobber.OnMelee, blobber.OnKill, blobber.OnTurn = nil, nil, nil }()
+	roll = func(n int) int { return n - 1 } // always the top roll
+	defer func() { roll = rand.Intn }()
+	kinds["rat"] = kind{"zombie_rat", 6, 2, 3, 5, 10, 0}
+	blobber.ClearMonsters()
+	h.spawn("rat", 2, 1, -1)
+	h.spawn("rat", 2, 1, -1)
+	god, autoFight, autoPace = true, true, 0 // god: monster hits do nothing, so the party can't fall first
+	defer func() { god, autoPace = false, 0.7 }()
+	for range 50 {
+		if len(blobber.Melee()) == 0 {
+			break
+		}
+		h.melee()
+	}
+	if n := len(blobber.Melee()); n != 0 || autoFight {
+		t.Fatalf("%d monster(s) left, autoFight=%v", n, autoFight)
+	}
+}

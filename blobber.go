@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -847,6 +848,24 @@ var Invisible bool
 // EndTurn passes a turn from outside the engine, e.g. after a spell is cast.
 func EndTurn() { game.endTurn() }
 
+type timer struct {
+	at float64
+	f  func()
+}
+
+// timers are After's pending calls; while any is pending the party takes no input.
+var timers []timer
+
+// After calls f sec seconds from now, holding the party's input until then: pacing for turns that
+// play out by themselves, like auto combat.
+func After(sec float64, f func()) {
+	if sec <= 0 { // at once
+		f()
+		return
+	}
+	timers = append(timers, timer{game.time + sec, f})
+}
+
 // endTurn passes a turn: hosts tick the clock, then every monster acts.
 func (g *Game) endTurn() {
 	if OnTurn != nil {
@@ -885,7 +904,7 @@ func (g *Game) monstersTurn() {
 		}
 		for _, d := range try {
 			nx, ny := a.x+d[0], a.y+d[1]
-			if d == [2]int{} || wall(nx, ny) || (actorAt(nx, ny) != nil && (nx != g.x || ny != g.y)) {
+			if d == [2]int{} || wall(nx, ny) || crowdAt(nx, ny) >= MaxPerCell {
 				continue
 			}
 			a.fx, a.fz, a.x, a.y, a.t = a.tx, a.tz, nx, ny, 0
@@ -893,6 +912,20 @@ func (g *Game) monstersTurn() {
 			break
 		}
 	}
+}
+
+// MaxPerCell is how many monsters fit in one cell (formation places them); a full cell blocks the rest.
+const MaxPerCell = 3
+
+// crowdAt counts the living monsters in cell (x, y).
+func crowdAt(x, y int) int {
+	n := 0
+	for _, a := range actors {
+		if a.x == x && a.y == y && !a.dying {
+			n++
+		}
+	}
+	return n
 }
 
 func abs(n int) int {
@@ -996,6 +1029,13 @@ func (g *Game) Update() error {
 	g.time += 1.0 / 60
 	updateEnts(g.time)
 	g.updateActors(1.0 / 60)
+	for i := 0; i < len(timers); i++ {
+		if t := timers[i]; g.time >= t.at {
+			timers = slices.Delete(timers, i, i+1)
+			t.f() // may add timers of its own
+			i--
+		}
+	}
 	ctx := byte('x')
 	if !g.menu && prompt == nil && Modal == nil && !g.help && !g.mapView {
 		ctx = 'w'
@@ -1024,6 +1064,10 @@ func (g *Game) Update() error {
 	}
 	if g.help {
 		g.help = Help.Update()
+		g.tween()
+		return nil
+	}
+	if len(timers) > 0 && prompt == nil && Modal == nil {
 		g.tween()
 		return nil
 	}
@@ -1527,7 +1571,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// monsters paint over the side walls of their own cell (a wide one would vanish into them); against
 	// walls facing us they sort by true depth, so a corner in front of them hides them
 	bias = 0.5
+	crowd := map[[2]int]int{} // monsters per cell, so a group stands side by side
+	for _, a := range actors {
+		crowd[[2]int{a.x, a.y}]++
+	}
+	placed := map[[2]int]int{}
 	for _, a := range actors { // monsters: floor-standing billboards
+		cell := [2]int{a.x, a.y}
+		slot := formation(crowd[cell], placed[cell])
+		placed[cell]++
 		ax, az := a.pos()
 		if _, ok := visibleCells(c)[[2]int{int(math.Floor(ax)), int(math.Floor(az))}]; !ok {
 			continue
@@ -1536,6 +1588,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			ax, az = g.tx+c.fwx*2*eyeBack, g.tz+c.fwz*2*eyeBack
 		}
 		ax, az = ax-c.fwx*eyeBack, az-c.fwz*eyeBack // mirror the eye: we stand at the back of our cell, the monster at the front of its, facing us
+		ax, az = ax+c.rtx*slot[0]+c.fwx*slot[1], az+c.rtz*slot[0]+c.fwz*slot[1]
 		img := a.img()
 		b := img.Bounds()
 		size := a.sheet.Size
@@ -1713,6 +1766,19 @@ func (g *Game) drawAtlas(screen *ebiten.Image) {
 		screen.DrawImage(a.img, op)
 		font.Print(screen, a.name, 20+i*140%560, 40+(i*140/560)*170+132)
 	}
+}
+
+// formation is the i-th of n monsters sharing a cell's offset from the cell's spot, sideways (right) and
+// back, seen from the party: two side by side, three with the middle one a step behind (so they
+// overlap in a stable order). MaxPerCell keeps it at 3.
+func formation(n, i int) [2]float64 {
+	switch {
+	case n == 2:
+		return [][2]float64{{-0.22, 0}, {0.22, 0.05}}[min(i, 1)]
+	case n >= 3:
+		return [][2]float64{{-0.3, 0}, {0, 0.15}, {0.3, 0.02}}[min(i, 2)]
+	}
+	return [2]float64{}
 }
 
 // minimapLayout is the minimap's cell size and the margin around its cells, wide enough for Panel's frame.

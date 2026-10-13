@@ -151,6 +151,9 @@ func (c *console) melee() {
 				return
 			}
 		}
+		if len(blobber.Melee()) == 0 || c.Wiped() {
+			autoFight = false
+		}
 		if !c.Wiped() {
 			blobber.EndTurn()
 		}
@@ -161,12 +164,32 @@ func (c *console) melee() {
 // blocking holds the characters that chose Block this round: monsters hit them less often.
 var blocking = map[*party.Character]bool{}
 
+// autoFight is set by Auto: every character attacks the first monster without asking until the
+// fight is over.
+var autoFight bool
+
+// autoPace is the seconds between auto combat turns; tests set 0.
+var autoPace = 0.7
+
 // choose asks ch for a round action and calls done once it is taken (flee ends the round itself).
 func (c *console) choose(ch *party.Character, done func()) {
 	again := func() { c.choose(ch, done) }
 	ui.Active = ch
-	blobber.ShowPrompt([]string{ch.Name + "'s turn:", "  1  Attack", "  2  Block", "  3  Cast", "  4  Flee"}, false, func(a string) {
+	if autoFight { // paced, so each swing and the monsters' answers play out on screen
+		blobber.After(autoPace, func() {
+			if ms := blobber.Melee(); len(ms) > 0 {
+				c.swing(ch, 0, ms[0])
+			}
+			done()
+		})
+		return
+	}
+	blobber.ShowPrompt([]string{ch.Name + "'s turn:", "  1  Attack", "  2  Block", "  3  Cast", "  4  Flee", "  5  Auto"}, false, func(a string) {
 		switch a {
+		case "5":
+			autoFight = true
+			blobber.Message("Auto combat: everyone attacks until the fight is over")
+			again()
 		case "1":
 			c.target(again, func(i int, m blobber.Monster) { c.swing(ch, i, m); done() })
 		case "2":
